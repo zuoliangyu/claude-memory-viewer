@@ -605,10 +605,10 @@ pub fn count_messages(path: &Path) -> u32 {
             || trimmed.contains("\"type\": \"response_item\""))
             && (trimmed.contains("\"type\":\"message\"")
                 || trimmed.contains("\"type\": \"message\""))
+            && !trimmed.contains("\"developer\"")
+            && !trimmed.contains("\"system\"")
         {
-            if !trimmed.contains("\"developer\"") && !trimmed.contains("\"system\"") {
-                count += 1;
-            }
+            count += 1;
         }
     }
     count
