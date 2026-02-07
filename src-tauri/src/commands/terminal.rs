@@ -53,7 +53,7 @@ pub fn resume_session(session_id: String, project_path: String) -> Result<(), St
         let mut launched = false;
         for (terminal, args) in &terminals {
             if Command::new(terminal)
-                .args(args.iter().map(|s| s.as_ref()))
+                .args(args)
                 .spawn()
                 .is_ok()
             {
