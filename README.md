@@ -28,9 +28,9 @@
 
 ## Screenshots
 
-![图片](img\1.png)
-![图片](img\2.png)
-![图片](img\3.png)
+![图片](./img/1.png)
+![图片](./img/2.png)
+![图片](./img/3.png)
 
 ## Features
 
