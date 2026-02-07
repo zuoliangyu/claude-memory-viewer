@@ -22,3 +22,5 @@ Thumbs.db
 # Tauri debug
 src-tauri/WixTools/
 src-tauri/gen/
+
+.spec-workflow/
