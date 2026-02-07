@@ -61,16 +61,43 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: 'Claude Memory Viewer ${{ github.ref_name }}'
           releaseBody: |
-            See the [CHANGELOG](https://github.com/zuoliangyu/claude-memory-viewer/blob/main/README.md#roadmap) for details.
+            See the [CHANGELOG](https://github.com/zuoliangyu/claude-memory-viewer/blob/main/CHANGELOG.md) for details.
 
             ## Downloads
 
-            | Platform | File |
-            |----------|------|
-            | Windows | `.msi` / `.exe` |
-            | macOS (Apple Silicon) | `.dmg` |
-            | macOS (Intel) | `.dmg` |
-            | Linux | `.deb` / `.AppImage` |
+            | Platform | Installer | Portable |
+            |----------|-----------|----------|
+            | Windows | `.msi` / `.exe` (NSIS) | `*-portable.zip` |
+            | macOS (Apple Silicon) | `.dmg` | — |
+            | macOS (Intel) | `.dmg` | — |
+            | Linux | `.deb` / `.AppImage` | — |
+
+            > Windows 便携版解压即用，无需安装。需要系统已安装 WebView2（Win10/11 默认内置）。
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
+
+      # Windows portable: zip the raw exe and upload to the same release
+      - name: Create Windows portable zip
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exePath = "src-tauri/target/release/claude-memory-viewer.exe"
+          if (Test-Path $exePath) {
+            $zipName = "claude-memory-viewer-${{ github.ref_name }}-windows-portable.zip"
+            Compress-Archive -Path $exePath -DestinationPath $zipName
+            Write-Output "PORTABLE_ZIP=$zipName" >> $env:GITHUB_OUTPUT
+            Write-Output "Created portable zip: $zipName"
+          } else {
+            Write-Error "Executable not found at $exePath"
+            exit 1
+          }
+        id: portable
+
+      - name: Upload portable zip to release
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} "${{ steps.portable.outputs.PORTABLE_ZIP }}" --clobber
