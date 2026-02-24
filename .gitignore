@@ -31,7 +31,4 @@ CLAUDE.md
 src-tauri/WixTools/
 src-tauri/gen/
 
-# Build helper scripts (local tooling)
-scripts/
-
 .spec-workflow/
