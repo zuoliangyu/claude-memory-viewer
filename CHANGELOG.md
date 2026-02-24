@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [0.9.0] - 2026-02-24
+## [1.0.0] - 2026-02-24
 
 ### Added
 
@@ -27,9 +27,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 ### Changed
 
 #### Sidebar Footer 布局调整
-- 上排：版本号（含更新指示器）+ 主题切换按钮
-- 下排：项目数量统计
-- 原单行布局改为两行，为更新组件腾出空间
+- 上排：项目数量统计 + 主题切换按钮
+- 下排：版本号 + 手动检查更新按钮 + 可展开的更新面板
+- 更新面板改为内嵌展开式（非弹窗），避免被 sidebar 滚动区域裁剪
+- 新增手动检查更新按钮（刷新图标），用户可随时主动检查
 
 ---
 
@@ -301,7 +302,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
-[0.9.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.9.0
+[1.0.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.0.0
 [0.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.8.0
 [0.7.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.7.0
 [0.6.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.6.1

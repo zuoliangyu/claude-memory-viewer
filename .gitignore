@@ -19,6 +19,14 @@ Thumbs.db
 .env
 .env.*
 
+# Local build scripts (contain signing password)
+dev.ps1
+build.ps1
+
+# Claude Code
+CLAUDE.md
+.claude/
+
 # Tauri debug
 src-tauri/WixTools/
 src-tauri/gen/

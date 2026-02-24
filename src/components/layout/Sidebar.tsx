@@ -145,7 +145,9 @@ export function Sidebar() {
       {/* Footer */}
       <div className="p-3 border-t border-border space-y-2">
         <div className="flex items-center justify-between">
-          <UpdateIndicator />
+          <span className="text-xs text-muted-foreground">
+            {projects.length} 个项目
+          </span>
           <div className="flex rounded-md bg-muted p-0.5">
             <button
               onClick={() => setTheme("light")}
@@ -176,9 +178,7 @@ export function Sidebar() {
             </button>
           </div>
         </div>
-        <div className="text-xs text-muted-foreground">
-          {projects.length} 个项目
-        </div>
+        <UpdateIndicator />
       </div>
     </aside>
   );

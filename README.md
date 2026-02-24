@@ -123,7 +123,8 @@
 | **安装版** (MSI/NSIS/DMG/DEB) | 应用内一键下载 + 自动安装 + 重启 |
 | **便携版** (Windows Portable ZIP) | 检测到新版后引导跳转 GitHub Release 下载 |
 
-- 启动后自动检查，Sidebar 底部显示版本号 + 更新提示
+- 启动后自动检查，Sidebar 底部显示版本号 + 手动检查按钮
+- 有更新时版本号旁显示蓝色脉冲圆点，点击展开内嵌更新面板
 - 支持忽略特定版本，不再重复提示
 - 基于 `tauri-plugin-updater` + Ed25519 签名验证，确保更新包完整性
 
@@ -354,8 +355,8 @@ npx tauri build
 项目使用 GitHub Actions 自动化构建和发布。创建一个 `v*` 格式的 tag 即可触发多平台构建：
 
 ```bash
-git tag v0.9.0
-git push origin v0.9.0
+git tag v1.0.0
+git push origin v1.0.0
 ```
 
 GitHub Actions 会自动：
