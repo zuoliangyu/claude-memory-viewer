@@ -1,12 +1,17 @@
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::mpsc;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use session_core::parser::path_encoder::get_projects_dir;
 use session_core::provider::codex;
 
+/// Minimum interval between emitting fs-change events to the frontend.
+const DEBOUNCE_DURATION: Duration = Duration::from_millis(300);
+
 /// Start watching both Claude and Codex directories for changes.
 /// Emits "fs-change" events to the frontend when files are modified.
+/// Events are debounced to avoid flooding the frontend during batch operations.
 pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
     let claude_dir = get_projects_dir();
     let codex_dir = codex::get_sessions_dir();
@@ -49,6 +54,8 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
             }
         }
 
+        let mut last_emit = Instant::now() - DEBOUNCE_DURATION;
+
         for event in rx {
             match event {
                 Ok(event) => {
@@ -58,7 +65,7 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                             .unwrap_or(false)
                     });
 
-                    if relevant {
+                    if relevant && last_emit.elapsed() >= DEBOUNCE_DURATION {
                         let paths: Vec<String> = event
                             .paths
                             .iter()
@@ -66,6 +73,7 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                             .collect();
 
                         let _ = app_handle.emit("fs-change", paths);
+                        last_emit = Instant::now();
                     }
                 }
                 Err(e) => {

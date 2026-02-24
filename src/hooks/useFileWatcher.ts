@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 
 declare const __IS_TAURI__: boolean;
@@ -6,27 +6,36 @@ declare const __IS_TAURI__: boolean;
 /**
  * In Tauri mode: use Tauri's event system (already handled by existing watcher).
  * In Web mode: connect to WebSocket at /ws for file change notifications.
+ *
+ * Debounces rapid file changes (e.g. multiple session deletions) to avoid
+ * triggering excessive reloads.
  */
 export function useFileWatcher() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const { loadProjects, selectedProject, selectProject } = useAppStore();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const { loadProjects, selectProject } = useAppStore();
+
+  const handleChange = useCallback(() => {
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      loadProjects();
+      const project = useAppStore.getState().selectedProject;
+      if (project) selectProject(project);
+    }, 500);
+  }, [loadProjects, selectProject]);
 
   useEffect(() => {
     if (__IS_TAURI__) {
-      // Tauri mode: listen to fs-change events from the Rust backend
       let unlisten: (() => void) | undefined;
       import("@tauri-apps/api/event").then(({ listen }) => {
-        listen<string[]>("fs-change", () => {
-          loadProjects();
-          const project = useAppStore.getState().selectedProject;
-          if (project) selectProject(project);
-        }).then((fn) => {
+        listen<string[]>("fs-change", handleChange).then((fn) => {
           unlisten = fn;
         });
       });
       return () => {
         unlisten?.();
+        clearTimeout(debounceRef.current);
       };
     }
 
@@ -41,15 +50,9 @@ export function useFileWatcher() {
       const ws = new WebSocket(url);
       wsRef.current = ws;
 
-      ws.onmessage = () => {
-        // Any file change: refresh data
-        loadProjects();
-        const project = useAppStore.getState().selectedProject;
-        if (project) selectProject(project);
-      };
+      ws.onmessage = handleChange;
 
       ws.onclose = () => {
-        // Reconnect after 5 seconds
         reconnectRef.current = setTimeout(connect, 5000);
       };
 
@@ -62,7 +65,8 @@ export function useFileWatcher() {
 
     return () => {
       clearTimeout(reconnectRef.current);
+      clearTimeout(debounceRef.current);
       wsRef.current?.close();
     };
-  }, []);
+  }, [handleChange]);
 }

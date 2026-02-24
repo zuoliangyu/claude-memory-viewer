@@ -2,7 +2,11 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::Response;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
+
+/// Minimum interval between sending file change events.
+const DEBOUNCE_DURATION: Duration = Duration::from_millis(300);
 
 use session_core::parser::path_encoder::get_projects_dir;
 use session_core::provider::codex;
@@ -45,6 +49,8 @@ pub fn start_file_watcher() -> FsChangeTx {
             }
         }
 
+        let mut last_emit = Instant::now() - DEBOUNCE_DURATION;
+
         for event in notify_rx {
             match event {
                 Ok(event) => {
@@ -54,7 +60,7 @@ pub fn start_file_watcher() -> FsChangeTx {
                             .unwrap_or(false)
                     });
 
-                    if relevant {
+                    if relevant && last_emit.elapsed() >= DEBOUNCE_DURATION {
                         let paths: Vec<String> = event
                             .paths
                             .iter()
@@ -62,6 +68,7 @@ pub fn start_file_watcher() -> FsChangeTx {
                             .collect();
 
                         let _ = tx_clone.send(paths);
+                        last_emit = Instant::now();
                     }
                 }
                 Err(e) => {
