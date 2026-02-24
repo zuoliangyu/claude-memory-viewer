@@ -49,6 +49,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend (required by rust-embed)
+        run: npm run build:web
+
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
