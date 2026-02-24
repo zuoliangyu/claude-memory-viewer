@@ -11,6 +11,12 @@ export default defineConfig(async () => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  define: {
+    __IS_TAURI__: JSON.stringify(!!process.env.TAURI_ENV_PLATFORM),
+  },
+  build: {
+    target: "es2022",
+  },
   clearScreen: false,
   server: {
     port: 1420,

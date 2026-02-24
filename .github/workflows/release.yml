@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -48,7 +49,7 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
+          workspaces: '. -> target'
 
       - name: Install frontend dependencies
         run: npm ci
@@ -84,7 +85,7 @@ jobs:
         if: matrix.platform == 'windows-latest'
         shell: pwsh
         run: |
-          $exePath = "src-tauri/target/release/ai-session-viewer.exe"
+          $exePath = "target/release/ai-session-viewer.exe"
           if (Test-Path $exePath) {
             $zipName = "ai-session-viewer-${{ github.ref_name }}-windows-portable.zip"
             Compress-Archive -Path $exePath -DestinationPath $zipName
@@ -103,3 +104,73 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release upload ${{ github.ref_name }} "${{ steps.portable.outputs.PORTABLE_ZIP }}" --clobber
+
+  web-server:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 'lts/*'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend (web mode)
+        run: npm run build:web
+
+      - name: Build web server
+        run: cargo build -p session-web --release
+
+      - name: Package web server
+        run: |
+          tar -czf session-web-${{ github.ref_name }}-linux-x86_64.tar.gz \
+            -C target/release session-web
+
+      - name: Upload to release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload ${{ github.ref_name }} session-web-${{ github.ref_name }}-linux-x86_64.tar.gz --clobber
+
+  docker:
+    runs-on: ubuntu-22.04
+    needs: web-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-web
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

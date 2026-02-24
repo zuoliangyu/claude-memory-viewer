@@ -1,9 +1,11 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
-import { ArrowLeft, Play, Loader2, ArrowDown, ArrowUp, Clock, Cpu } from "lucide-react";
+import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu } from "lucide-react";
 import { MessageThread } from "./MessageThread";
-import { resumeSession } from "../../services/tauriApi";
+import { api } from "../../services/api";
+
+declare const __IS_TAURI__: boolean;
 
 export function MessagesPage() {
   const params = useParams();
@@ -95,14 +97,25 @@ export function MessagesPage() {
     containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
 
+  const [copied, setCopied] = useState(false);
+
   const handleResume = async () => {
     if (!session) return;
-    const path = session.projectPath || session.cwd || project?.displayPath;
-    if (!path) return;
-    try {
-      await resumeSession(source, session.sessionId, path, session.filePath);
-    } catch (err) {
-      console.error("Failed to resume session:", err);
+    if (__IS_TAURI__) {
+      const path = session.projectPath || session.cwd || project?.displayPath;
+      if (!path) return;
+      try {
+        await api.resumeSession(source, session.sessionId, path, session.filePath);
+      } catch (err) {
+        console.error("Failed to resume session:", err);
+      }
+    } else {
+      const cmd = source === "claude"
+        ? `claude --resume ${session.sessionId}`
+        : `codex resume ${session.sessionId}`;
+      await navigator.clipboard.writeText(cmd);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     }
   };
 
@@ -152,9 +165,15 @@ export function MessagesPage() {
           <button
             onClick={handleResume}
             className="ml-1 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
+            title={__IS_TAURI__ ? "在终端中恢复此会话" : "复制恢复命令"}
           >
-            <Play className="w-3 h-3" />
-            Resume
+            {__IS_TAURI__ ? (
+              <><Play className="w-3 h-3" />Resume</>
+            ) : copied ? (
+              <>已复制</>
+            ) : (
+              <><Copy className="w-3 h-3" />复制命令</>
+            )}
           </button>
         </div>
       </div>

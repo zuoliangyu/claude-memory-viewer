@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 jobs:
-  check:
+  check-tauri:
     runs-on: ubuntu-22.04
 
     steps:
@@ -23,13 +23,13 @@ jobs:
       - name: Rust cache
         uses: swatinem/rust-cache@v2
         with:
-          workspaces: './src-tauri -> target'
+          workspaces: '. -> target'
 
-      - name: Cargo check
-        run: cd src-tauri && cargo check
+      - name: Cargo check (Tauri app)
+        run: cargo check -p ai-session-viewer
 
-      - name: Cargo clippy
-        run: cd src-tauri && cargo clippy -- -D warnings
+      - name: Cargo clippy (Tauri app)
+        run: cargo clippy -p ai-session-viewer -- -D warnings
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -42,3 +42,23 @@ jobs:
 
       - name: TypeScript check
         run: npx tsc --noEmit
+
+  check-web:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+
+      - name: Cargo check (session-core + session-web)
+        run: cargo check -p session-core -p session-web
+
+      - name: Cargo clippy (session-core + session-web)
+        run: cargo clippy -p session-core -p session-web -- -D warnings

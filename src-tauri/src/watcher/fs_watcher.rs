@@ -2,8 +2,8 @@ use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::sync::mpsc;
 use tauri::{AppHandle, Emitter};
 
-use crate::parser::path_encoder::get_projects_dir;
-use crate::provider::codex;
+use session_core::parser::path_encoder::get_projects_dir;
+use session_core::provider::codex;
 
 /// Start watching both Claude and Codex directories for changes.
 /// Emits "fs-change" events to the frontend when files are modified.

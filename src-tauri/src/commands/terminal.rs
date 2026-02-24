@@ -2,8 +2,8 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use crate::models::session::{SessionsIndex, SessionsIndexFileEntry};
-use crate::parser::jsonl as claude_parser;
+use session_core::models::session::{SessionsIndex, SessionsIndexFileEntry};
+use session_core::parser::jsonl as claude_parser;
 
 #[tauri::command]
 pub fn resume_session(

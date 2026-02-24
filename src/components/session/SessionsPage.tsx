@@ -12,7 +12,10 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow, format } from "date-fns";
 import { zhCN } from "date-fns/locale";
-import { resumeSession } from "../../services/tauriApi";
+import { api } from "../../services/api";
+import { Copy } from "lucide-react";
+
+declare const __IS_TAURI__: boolean;
 
 export function SessionsPage() {
   const { projectId: rawProjectId } = useParams<{ projectId: string }>();
@@ -50,6 +53,8 @@ export function SessionsPage() {
     }
   };
 
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
   const handleResume = async (
     e: React.MouseEvent,
     sessionId: string,
@@ -57,11 +62,20 @@ export function SessionsPage() {
     filePath?: string
   ) => {
     e.stopPropagation();
-    if (!projectPath) return;
-    try {
-      await resumeSession(source, sessionId, projectPath, filePath);
-    } catch (err) {
-      console.error("Failed to resume session:", err);
+    if (__IS_TAURI__) {
+      if (!projectPath) return;
+      try {
+        await api.resumeSession(source, sessionId, projectPath, filePath);
+      } catch (err) {
+        console.error("Failed to resume session:", err);
+      }
+    } else {
+      const cmd = source === "claude"
+        ? `claude --resume ${sessionId}`
+        : `codex resume ${sessionId}`;
+      await navigator.clipboard.writeText(cmd);
+      setCopiedId(sessionId);
+      setTimeout(() => setCopiedId(null), 2000);
     }
   };
 
@@ -155,10 +169,15 @@ export function SessionsPage() {
                       )
                     }
                     className="px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
-                    title="在终端中恢复此会话"
+                    title={__IS_TAURI__ ? "在终端中恢复此会话" : "复制恢复命令"}
                   >
-                    <Play className="w-3 h-3" />
-                    Resume
+                    {__IS_TAURI__ ? (
+                      <><Play className="w-3 h-3" />Resume</>
+                    ) : copiedId === session.sessionId ? (
+                      <>已复制</>
+                    ) : (
+                      <><Copy className="w-3 h-3" />复制命令</>
+                    )}
                   </button>
                   <button
                     onClick={(e) => {

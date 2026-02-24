@@ -4,6 +4,46 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] - 2026-02-24
+
+### Added
+
+#### Web 服务器变体（session-web）
+- 新增 Axum HTTP 服务器，支持在无 GUI 的服务器环境通过浏览器远程访问会话数据
+- 单文件可执行，前端通过 `rust-embed` 编译嵌入二进制中
+- CLI 参数：`--host`、`--port`、`--token`（均支持环境变量 `ASV_HOST`/`ASV_PORT`/`ASV_TOKEN`）
+- 可选 Bearer Token 认证，保护远程访问安全
+- REST API：`/api/projects`、`/api/sessions`、`/api/messages`、`/api/search`、`/api/stats`
+- WebSocket `/ws` 实时推送文件变更事件
+- 新增 Docker 多阶段构建（`node:lts` → `rust:1` → `debian:bookworm-slim`）
+- Docker 镜像自动推送到 GHCR（`ghcr.io/{repo}-web`）
+
+#### Cargo Workspace 重构
+- 提取共享 Rust 核心逻辑为 `crates/session-core`（models/provider/parser/search/stats/state）
+- `src-tauri` 和 `crates/session-web` 共同依赖 `session-core`，消除代码重复
+- 搜索逻辑（`search.rs`）和统计逻辑（`stats.rs`）从 Tauri commands 中提取为纯函数
+
+#### 前端 API 层抽象
+- 新增编译时变量 `__IS_TAURI__`（Vite define），自动区分桌面/Web 模式
+- 新增 `src/services/webApi.ts`（HTTP fetch 封装）和 `src/services/api.ts`（统一入口）
+- 前端组件 100% 复用，仅 API 调用层自动切换
+- Web 模式下 Resume 按钮改为"复制恢复命令"到剪贴板
+- Web 模式下自动隐藏更新检测相关 UI
+- 新增 `src/hooks/useFileWatcher.ts`：Tauri 模式用事件监听，Web 模式用 WebSocket
+
+#### CI/CD 扩展
+- Release workflow 新增 `web-server` job：构建 Linux x86_64 Web 服务器二进制并上传到 Release
+- Release workflow 新增 `docker` job：构建并推送 Docker 镜像到 GHCR
+- Build workflow 新增 `check-web` job：独立检查 session-core + session-web 编译（无需 WebKit 系统依赖）
+
+### Changed
+
+- `sync-version.mjs` 现在同步版本号到 3 个 Cargo.toml（src-tauri、session-core、session-web）
+- `build.yml` Rust cache workspaces 路径更新为 workspace 根目录
+- `release.yml` portable zip 路径修正为 `target/release/`（workspace 模式下 target 在根目录）
+
+---
+
 ## [1.0.1] - 2026-02-24
 
 ### Changed
@@ -317,6 +357,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.1.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.1.0
 [1.0.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.0.0
 [0.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.8.0

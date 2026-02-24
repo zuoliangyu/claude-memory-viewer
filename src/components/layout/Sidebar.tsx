@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useTheme } from "../../hooks/useTheme";
 import { useUpdateChecker } from "../../hooks/useUpdateChecker";
+import { useFileWatcher } from "../../hooks/useFileWatcher";
 import { UpdateIndicator } from "./UpdateIndicator";
 import {
   FolderOpen,
@@ -16,6 +17,8 @@ import {
   Monitor,
 } from "lucide-react";
 
+declare const __IS_TAURI__: boolean;
+
 export function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -23,6 +26,7 @@ export function Sidebar() {
     useAppStore();
   const { theme, setTheme } = useTheme();
   useUpdateChecker();
+  useFileWatcher();
 
   useEffect(() => {
     loadProjects();
@@ -178,7 +182,7 @@ export function Sidebar() {
             </button>
           </div>
         </div>
-        <UpdateIndicator />
+        {__IS_TAURI__ && <UpdateIndicator />}
       </div>
     </aside>
   );

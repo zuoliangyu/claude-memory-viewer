@@ -1,6 +1,6 @@
 [package]
 name = "ai-session-viewer"
-version = "1.0.1"
+version = "1.1.0"
 description = "A desktop app to browse Claude and Codex session histories"
 authors = ["zuolan"]
 edition = "2021"
@@ -13,6 +13,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+session-core = { path = "../crates/session-core" }
 tauri = { version = "2", features = [] }
 tauri-plugin-shell = "2"
 tauri-plugin-fs = "2"
@@ -20,11 +21,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 notify = "7"
-rayon = "1.10"
 chrono = { version = "0.4", features = ["serde"] }
-lru = "0.12"
-parking_lot = "0.12"
-dirs = "6"
 
 [target."cfg(not(any(target_os = \"android\", target_os = \"ios\")))".dependencies]
 tauri-plugin-updater = "2"

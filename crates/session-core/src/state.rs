@@ -4,7 +4,7 @@ use std::num::NonZeroUsize;
 
 use crate::models::message::DisplayMessage;
 
-/// Application state shared across Tauri commands
+/// Application state shared across commands
 #[allow(dead_code)]
 pub struct AppState {
     /// LRU cache for parsed session messages (key: "encodedName/sessionId")

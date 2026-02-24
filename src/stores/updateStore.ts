@@ -1,9 +1,7 @@
 import { create } from "zustand";
-import { check, type Update } from "@tauri-apps/plugin-updater";
-import { relaunch } from "@tauri-apps/plugin-process";
-import { open } from "@tauri-apps/plugin-shell";
-import { getVersion } from "@tauri-apps/api/app";
-import * as api from "../services/tauriApi";
+import { api } from "../services/api";
+
+declare const __IS_TAURI__: boolean;
 
 type UpdateStatus =
   | "idle"
@@ -44,6 +42,7 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   errorMessage: null,
 
   detectInstallType: async () => {
+    if (!__IS_TAURI__) return;
     try {
       const type = await api.getInstallType();
       set({ installType: type });
@@ -53,7 +52,9 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   loadCurrentVersion: async () => {
+    if (!__IS_TAURI__) return;
     try {
+      const { getVersion } = await import("@tauri-apps/api/app");
       const version = await getVersion();
       set({ currentVersion: version });
     } catch {
@@ -62,9 +63,11 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   checkForUpdate: async () => {
+    if (!__IS_TAURI__) return;
     set({ status: "checking", errorMessage: null });
     try {
-      const update: Update | null = await check();
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
       if (update) {
         const dismissedVersion = localStorage.getItem(DISMISSED_VERSION_KEY);
         const isDismissed = dismissedVersion === update.version;
@@ -84,8 +87,11 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   downloadAndInstall: async () => {
+    if (!__IS_TAURI__) return;
     set({ status: "downloading", downloadProgress: 0 });
     try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const { relaunch } = await import("@tauri-apps/plugin-process");
       const update = await check();
       if (!update) return;
 
@@ -117,8 +123,10 @@ export const useUpdateStore = create<UpdateState>((set, get) => ({
   },
 
   openDownloadPage: async () => {
+    if (!__IS_TAURI__) return;
     const { newVersion } = get();
     const tag = newVersion ? `v${newVersion}` : "latest";
+    const { open } = await import("@tauri-apps/plugin-shell");
     await open(
       `https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/${tag}`
     );

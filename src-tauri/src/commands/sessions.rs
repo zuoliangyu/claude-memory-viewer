@@ -1,7 +1,7 @@
 use std::fs;
 
-use crate::models::session::SessionIndexEntry;
-use crate::provider::{claude, codex};
+use session_core::models::session::SessionIndexEntry;
+use session_core::provider::{claude, codex};
 
 #[tauri::command]
 pub fn get_sessions(source: String, project_id: String) -> Result<Vec<SessionIndexEntry>, String> {

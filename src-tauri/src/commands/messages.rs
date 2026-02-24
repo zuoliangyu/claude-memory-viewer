@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use crate::models::message::PaginatedMessages;
-use crate::provider::{claude, codex};
+use session_core::models::message::PaginatedMessages;
+use session_core::provider::{claude, codex};
 
 #[tauri::command]
 pub fn get_messages(

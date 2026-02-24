@@ -1,12 +1,14 @@
 {
   "name": "ai-session-viewer",
   "private": true,
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/generate-icons.mjs && vite",
     "build": "node scripts/sync-version.mjs check && node scripts/generate-icons.mjs && tsc -b && vite build",
     "sync-version": "node scripts/sync-version.mjs",
+    "build:web": "tsc -b && vite build",
+    "dev:web": "npm run build:web && cargo run -p session-web",
     "preview": "vite preview",
     "tauri": "tauri"
   },

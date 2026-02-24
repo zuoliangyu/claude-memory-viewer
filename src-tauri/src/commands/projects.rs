@@ -1,5 +1,5 @@
-use crate::models::project::ProjectEntry;
-use crate::provider::{claude, codex};
+use session_core::models::project::ProjectEntry;
+use session_core::provider::{claude, codex};
 
 #[tauri::command]
 pub fn get_projects(source: String) -> Result<Vec<ProjectEntry>, String> {

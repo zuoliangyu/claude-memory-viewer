@@ -6,7 +6,7 @@ import type {
   TokenUsageSummary,
   SearchResult,
 } from "../types";
-import * as api from "../services/tauriApi";
+import { api } from "../services/api";
 
 interface AppState {
   // Source

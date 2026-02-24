@@ -1,11 +1,7 @@
 mod commands;
-mod models;
-mod parser;
-mod provider;
-mod state;
 mod watcher;
 
-use state::AppState;
+use session_core::state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {

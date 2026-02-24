@@ -22,7 +22,11 @@
 
 ---
 
-**AI Session Viewer** 是一个轻量级桌面应用，让你可以在一个统一界面中浏览、搜索、统计来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [OpenAI Codex CLI](https://github.com/openai/codex) 的所有本地会话记忆，并支持一键恢复（Resume）到对应 CLI 中继续对话。
+**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索、统计来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [OpenAI Codex CLI](https://github.com/openai/codex) 的所有本地会话记忆，并支持一键恢复（Resume）到对应 CLI 中继续对话。
+
+支持两种运行方式：
+- **桌面应用** — Tauri v2 原生桌面应用（Windows / macOS / Linux）
+- **Web 服务器** — 单文件可执行 + Docker 镜像，适合无 GUI 的服务器环境
 
 本应用**只读取本地文件**，不联网、不上传任何数据。
 
@@ -137,7 +141,8 @@
 
 | Layer | Technology |
 |-------|-----------|
-| Framework | [Tauri v2](https://v2.tauri.app/) (Rust + WebView) |
+| Desktop Framework | [Tauri v2](https://v2.tauri.app/) (Rust + WebView) |
+| Web Server | [Axum](https://github.com/tokio-rs/axum) 0.8 + WebSocket |
 | Frontend | React 19 + TypeScript + Vite 6 |
 | Styling | Tailwind CSS 3 + @tailwindcss/typography |
 | State | Zustand 5 |
@@ -145,54 +150,46 @@
 | Charts | Recharts 2 |
 | Icons | Lucide React |
 | Date | date-fns 4 |
+| Shared Core | session-core (Rust crate，models/provider/search/stats) |
 | File Watch | notify 7 (Rust) |
 | Parallel Search | Rayon 1.10 (Rust) |
 | Cache | LRU 0.12 (Rust) |
+| Static Embed | rust-embed 8 (Web 模式嵌入前端到二进制) |
 | Auto Update | tauri-plugin-updater 2 + tauri-plugin-process 2 (Rust) |
 
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                      Tauri WebView                            │
-│  ┌──────────────┐  ┌──────────────┐  ┌────────────────────┐ │
-│  │   Sidebar     │  │  Session List │  │   Message Thread   │ │
-│  │ [Claude|Codex]│  │  (Index View) │  │  (JSONL Parsed)    │ │
-│  │  + Projects   │  │              │  │                    │ │
-│  └──────┬───────┘  └──────┬───────┘  └────────┬───────────┘ │
-│         │                 │                    │              │
-│  ┌──────┴─────────────────┴────────────────────┴───────────┐ │
-│  │          Zustand Store (source: claude|codex)            │ │
-│  │                    tauriApi.ts                            │ │
-│  └──────────────────────────┬──────────────────────────────┘ │
-└─────────────────────────────┼────────────────────────────────┘
-                              │  Tauri IPC (invoke + source)
-┌─────────────────────────────┼────────────────────────────────┐
-│  Rust Backend               │                                 │
-│  ┌──────────────────────────┴──────────────────────────────┐ │
-│  │                   Tauri Commands                         │ │
-│  │  get_projects(source)   get_sessions(source, id)         │ │
-│  │  get_messages(source, path)   global_search(source, q)   │ │
-│  │  get_token_stats(source)   resume_session(source, id)    │ │
-│  └────┬───────────────────────────────────────────┬────────┘ │
-│       │                                           │          │
-│  ┌────┴──────────────┐                  ┌─────────┴────────┐ │
-│  │  provider/claude   │                  │  provider/codex   │ │
-│  │  (JSONL + Index)   │                  │  (JSONL + Meta)   │ │
-│  └────┬──────────────┘                  └─────────┬────────┘ │
-│       │                                           │          │
-│  ┌────┴───────────────────────────────────────────┴────────┐ │
-│  │  ~/.claude/projects/          ~/.codex/sessions/         │ │
-│  │  sessions-index.json *.jsonl  rollout-*.jsonl            │ │
-│  └─────────────────────────────────────────────────────────┘ │
-│                                                               │
-│  ┌────────────────┐  ┌────────────────────────────────────┐  │
-│  │    Watcher      │  │        Terminal Spawn               │  │
-│  │ (notify: dual   │  │ (cmd / osascript / gnome-terminal) │  │
-│  │  dir watch)     │  │ (claude --resume / codex resume)   │  │
-│  └────────────────┘  └────────────────────────────────────┘  │
-└───────────────────────────────────────────────────────────────┘
+              React 前端（100% 复用）
+   ┌──────────────────────────────────────┐
+   │  Zustand Store + Components          │
+   │  ┌──────────┐    ┌────────────────┐  │
+   │  │tauriApi.ts│    │  webApi.ts     │  │
+   │  │(invoke)   │    │  (fetch/ws)    │  │
+   │  └─────┬─────┘    └───────┬────────┘  │
+   └────────┼───────────────────┼──────────┘
+            │                   │
+    Tauri IPC              REST + WebSocket
+            │                   │
+   ┌────────┴────────┐  ┌──────┴─────────┐
+   │   src-tauri/    │  │  session-web/  │
+   │  (Tauri 桌面)   │  │  (Axum HTTP)   │
+   └────────┬────────┘  └──────┬─────────┘
+            │                  │
+            └────────┬─────────┘
+                     │
+           ┌─────────┴─────────┐
+           │   session-core    │  ← 共享 Rust 核心
+           │ models / provider │
+           │ search / stats    │
+           └─────────┬─────────┘
+                     │
+          ┌──────────┼──────────┐
+          │          │          │
+     ~/.claude/  ~/.codex/   文件系统
 ```
+
+前端通过编译时变量 `__IS_TAURI__` 自动切换 API 层（Tauri invoke vs HTTP fetch），组件代码 100% 复用。
 
 ## Data Source
 
@@ -230,7 +227,7 @@
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)（`~/.claude/projects/` 目录存在）
   - [Codex CLI](https://github.com/openai/codex)（`~/.codex/sessions/` 目录存在）
 
-### Platform-specific
+### Platform-specific（仅桌面应用需要）
 
 **Windows:**
 - [Microsoft Visual C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
@@ -244,6 +241,8 @@
 sudo apt install libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 ```
 
+> **注意**: Web 服务器版本不需要上述 WebKit/GUI 依赖，只需 Rust 工具链。
+
 ## Development
 
 ```bash
@@ -254,68 +253,84 @@ cd claude-memory-viewer
 # 安装前端依赖
 npm install
 
-# 启动开发服务器（同时启动 Vite 前端 + Rust 后端）
+# 桌面应用开发（Tauri + Vite HMR）
 npx tauri dev
+
+# Web 服务器开发
+npm run build:web          # 构建前端（Web 模式）
+cargo run -p session-web   # 启动 Axum 服务器，访问 http://localhost:3000
 ```
 
-> **注意**: 不能只运行 `npm run dev`，那只会启动 Vite 前端。必须用 `npx tauri dev` 才能同时编译 Rust 后端并启动完整应用。
+> **注意**: 桌面应用不能只运行 `npm run dev`，那只会启动 Vite 前端。必须用 `npx tauri dev` 才能同时编译 Rust 后端并启动完整应用。
 
 ### Project Structure
 
 ```
 AI-Session-Viewer/
+├── Cargo.toml                        # Workspace 根配置
+│
+├── crates/
+│   ├── session-core/                 # 共享 Rust 核心库（无 Tauri 依赖）
+│   │   └── src/
+│   │       ├── models/               # 统一数据结构
+│   │       │   ├── project.rs        # ProjectEntry
+│   │       │   ├── session.rs        # SessionIndexEntry
+│   │       │   ├── message.rs        # DisplayMessage + 7种内容块枚举
+│   │       │   └── stats.rs          # TokenUsageSummary
+│   │       ├── provider/             # 双数据源提供层
+│   │       │   ├── claude.rs         # Claude Code 数据解析
+│   │       │   └── codex.rs          # Codex CLI 数据解析
+│   │       ├── parser/               # JSONL 解析 + 路径处理
+│   │       ├── search.rs             # Rayon 并行全局搜索
+│   │       ├── stats.rs              # Token 统计聚合
+│   │       └── state.rs              # AppState（LRU 缓存）
+│   │
+│   └── session-web/                  # Web 服务器（Axum）
+│       └── src/
+│           ├── main.rs               # CLI 入口 + Axum 服务器
+│           ├── config.rs             # clap 参数（--host --port --token）
+│           ├── routes/               # REST API 路由
+│           │   ├── projects.rs       # GET /api/projects
+│           │   ├── sessions.rs       # GET/DELETE /api/sessions
+│           │   ├── messages.rs       # GET /api/messages
+│           │   ├── search.rs         # GET /api/search
+│           │   └── stats.rs          # GET /api/stats
+│           ├── ws.rs                 # WebSocket 文件变更推送
+│           └── static_files.rs       # rust-embed 嵌入前端
+│
 ├── src/                              # Frontend (React + TypeScript)
 │   ├── App.tsx                       # 路由配置
 │   ├── components/
-│   │   ├── layout/                   # AppLayout, Sidebar（含 Claude/Codex Tab）
-│   │   ├── project/                  # ProjectsPage - 项目列表
-│   │   ├── session/                  # SessionsPage - 会话列表
+│   │   ├── layout/                   # AppLayout, Sidebar
+│   │   ├── project/                  # ProjectsPage
+│   │   ├── session/                  # SessionsPage
 │   │   ├── message/                  # MessagesPage, MessageThread
-│   │   │                             # AssistantMessage, UserMessage
-│   │   │                             # ToolOutputMessage
-│   │   ├── search/                   # SearchPage - 全局搜索
-│   │   └── stats/                    # StatsPage - 统计面板
-│   ├── stores/appStore.ts            # Zustand 全局状态（含 source 切换）
-│   ├── services/tauriApi.ts          # Tauri invoke 封装（所有 API 含 source 参数）
+│   │   ├── search/                   # SearchPage
+│   │   └── stats/                    # StatsPage
+│   ├── stores/appStore.ts            # Zustand 全局状态
+│   ├── services/
+│   │   ├── api.ts                    # 统一 API 入口（自动切换）
+│   │   ├── tauriApi.ts               # Tauri invoke 封装
+│   │   └── webApi.ts                 # HTTP fetch 封装
+│   ├── hooks/useFileWatcher.ts       # 文件变更监听（Tauri event / WebSocket）
 │   └── types/index.ts                # TypeScript 类型定义
 │
-├── src-tauri/                        # Backend (Rust)
-│   ├── Cargo.toml
-│   ├── tauri.conf.json               # Tauri 配置
-│   ├── capabilities/default.json     # 权限声明
-│   ├── icons/                        # 应用图标
+├── src-tauri/                        # Tauri 桌面应用后端
+│   ├── Cargo.toml                    # 依赖 session-core
+│   ├── tauri.conf.json
 │   └── src/
-│       ├── main.rs                   # 入口
 │       ├── lib.rs                    # Tauri Builder + 命令注册
-│       ├── state.rs                  # AppState（LRU 缓存）
-│       ├── commands/
-│       │   ├── projects.rs           # get_projects(source) - 扫描项目
-│       │   ├── sessions.rs           # get_sessions(source) - 读取会话索引
-│       │   ├── messages.rs           # get_messages(source) - 分页加载消息
-│       │   ├── search.rs             # global_search(source) - 并行搜索
-│       │   ├── stats.rs              # get_token_stats(source) - Token 统计
-│       │   ├── terminal.rs           # resume_session(source) - 跨平台终端启动
-│       │   └── updater.rs            # get_install_type - 检测安装类型
-│       ├── provider/                  # 双数据源提供层
-│       │   ├── claude.rs             # Claude Code 数据解析
-│       │   └── codex.rs              # Codex CLI 数据解析
-│       ├── models/                   # 统一数据结构
-│       │   ├── project.rs            # ProjectEntry（含 source 字段）
-│       │   ├── session.rs            # SessionIndexEntry（统一 Claude/Codex）
-│       │   ├── message.rs            # DisplayMessage + 7种内容块枚举
-│       │   └── stats.rs              # TokenUsageSummary
-│       ├── parser/
-│       │   └── path_encoder.rs       # Claude home 定位 + 路径处理
-│       └── watcher/
-│           └── fs_watcher.rs         # 双目录文件系统监听
+│       ├── commands/                 # Tauri Commands（调用 session-core）
+│       └── watcher/                  # 文件系统监听 → Tauri 事件
 │
-├── scripts/                          # 构建辅助脚本（gitignored）
-│   ├── generate-icons.mjs           # 从 public/logo.png 自动生成全平台图标
-│   └── sync-version.mjs             # 同步 package.json 版本号到 Cargo.toml + tauri.conf.json
+├── scripts/
+│   ├── generate-icons.mjs            # 自动生成全平台图标
+│   └── sync-version.mjs              # 同步版本号到所有 Cargo.toml
 │
+├── Dockerfile                        # Web 服务器 Docker 镜像
 ├── .github/workflows/
-│   ├── build.yml                     # CI: cargo check + clippy + tsc
-│   └── release.yml                   # CD: 多平台构建 + GitHub Release
+│   ├── build.yml                     # CI: Tauri + Web 双重检查
+│   └── release.yml                   # CD: 多平台桌面 + Web + Docker
 │
 ├── package.json
 ├── vite.config.ts
@@ -341,18 +356,99 @@ AI-Session-Viewer/
 
 ## Build
 
+### 桌面应用
+
 ```bash
-# 构建生产版本安装包
 npx tauri build
 ```
 
-构建产物位于 `src-tauri/target/release/bundle/`：
+构建产物位于 `target/release/bundle/`：
 
 | Platform | Output |
 |----------|--------|
-| Windows | `.msi` + `.exe` (NSIS installer) |
+| Windows | `.msi` + `.exe` (NSIS installer) + portable `.zip` |
 | macOS | `.dmg` + `.app` |
 | Linux | `.deb` + `.AppImage` |
+
+### Web 服务器
+
+```bash
+npm run build:web                      # 构建前端（Web 模式）
+cargo build -p session-web --release   # 构建后端（内嵌前端）
+```
+
+产出单文件可执行：`target/release/session-web`
+
+### Docker
+
+```bash
+docker build -t ai-session-viewer-web .
+```
+
+## Web Server Usage
+
+Web 服务器适合无 GUI 的服务器环境，通过浏览器远程访问会话数据。
+
+### 直接运行
+
+```bash
+# 最简启动（监听 127.0.0.1:3000）
+./session-web
+
+# 完整参数
+./session-web --host 0.0.0.0 --port 8080 --token my-secret
+
+# 环境变量
+ASV_HOST=0.0.0.0 ASV_PORT=8080 ASV_TOKEN=my-secret ./session-web
+```
+
+| 参数 | 环境变量 | 默认值 | 说明 |
+|------|---------|--------|------|
+| `--host` | `ASV_HOST` | `127.0.0.1` | 监听地址 |
+| `--port` | `ASV_PORT` | `3000` | 监听端口 |
+| `--token` | `ASV_TOKEN` | *(无)* | Bearer Token 认证，不设则免认证 |
+
+### Docker 运行
+
+```bash
+docker run -p 3000:3000 \
+  -v ~/.claude:/root/.claude:ro \
+  -v ~/.codex:/root/.codex:ro \
+  ai-session-viewer-web
+```
+
+加 Token 认证：
+
+```bash
+docker run -p 3000:3000 \
+  -e ASV_TOKEN=my-secret \
+  -v ~/.claude:/root/.claude:ro \
+  -v ~/.codex:/root/.codex:ro \
+  ai-session-viewer-web
+```
+
+### Web 版与桌面版的差异
+
+| 功能 | 桌面应用 | Web 服务器 |
+|------|---------|-----------|
+| Resume 会话 | 打开系统终端 | 复制命令到剪贴板 |
+| 自动更新 | 应用内更新 | 不适用 |
+| 文件监听 | Tauri 事件 | WebSocket 推送 |
+| 认证 | 不需要 | 可选 Bearer Token |
+
+### REST API
+
+Web 服务器暴露以下 REST API，可供自定义客户端调用：
+
+| 方法 | 路径 | Query 参数 | 说明 |
+|------|------|-----------|------|
+| GET | `/api/projects` | `source` | 获取项目列表 |
+| GET | `/api/sessions` | `source, projectId` | 获取会话列表 |
+| DELETE | `/api/sessions` | `filePath` | 删除会话 |
+| GET | `/api/messages` | `source, filePath, page, pageSize, fromEnd` | 分页加载消息 |
+| GET | `/api/search` | `source, query, maxResults` | 全局搜索 |
+| GET | `/api/stats` | `source` | Token 统计 |
+| WS | `/ws` | — | 文件变更实时推送 |
 
 ## Release
 
@@ -365,9 +461,9 @@ git push origin v1.0.0
 
 GitHub Actions 会自动：
 
-1. 在 Windows、macOS (Intel + Apple Silicon)、Linux 上并行构建
-2. 生成各平台安装包 + `.sig` 签名文件
-3. 生成 `latest.json` 更新清单（供旧版客户端检测新版本）
+1. 在 Windows、macOS (Intel + Apple Silicon)、Linux 上并行构建桌面应用
+2. 构建 Web 服务器 Linux 二进制 + Docker 镜像（推送到 GHCR）
+3. 生成各平台安装包 + `.sig` 签名文件 + `latest.json` 更新清单
 4. 创建 GitHub Release 并上传所有产物
 
 ## Roadmap
@@ -391,6 +487,7 @@ GitHub Actions 会自动：
 - [x] 聊天气泡式消息布局
 - [x] 消息显示模型名称 + 时间戳/模型切换按钮
 - [x] 应用内自动更新（安装版自动安装 / 便携版引导下载）
+- [x] **Web 服务器变体（Axum + Docker，无 GUI 服务器可用）**
 - [ ] 自定义标题栏
 - [ ] 更多 AI CLI 数据源支持（Gemini CLI 等）
 
@@ -400,7 +497,7 @@ GitHub Actions 会自动：
 
 ```bash
 # 开发前请确保通过以下检查
-cd src-tauri && cargo clippy -- -D warnings   # Rust lint
+cargo clippy --workspace -- -D warnings        # Rust lint（全 workspace）
 npx tsc --noEmit                               # TypeScript 类型检查
 ```
 

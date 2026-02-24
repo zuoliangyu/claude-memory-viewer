@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { resolve } from "path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -10,12 +10,20 @@ const version = pkg.version;
 
 // 2. Read other files
 const tauriConfPath = resolve(root, "src-tauri/tauri.conf.json");
-const cargoTomlPath = resolve(root, "src-tauri/Cargo.toml");
+const cargoTomlPaths = [
+  resolve(root, "src-tauri/Cargo.toml"),
+  resolve(root, "crates/session-core/Cargo.toml"),
+  resolve(root, "crates/session-web/Cargo.toml"),
+];
 
 const tauriConf = JSON.parse(readFileSync(tauriConfPath, "utf-8"));
-const cargoToml = readFileSync(cargoTomlPath, "utf-8");
-const cargoMatch = cargoToml.match(/^version\s*=\s*"(.+?)"/m);
-const cargoVersion = cargoMatch?.[1];
+
+function readCargoVersion(path) {
+  if (!existsSync(path)) return null;
+  const content = readFileSync(path, "utf-8");
+  const match = content.match(/^version\s*=\s*"(.+?)"/m);
+  return match?.[1] ?? null;
+}
 
 if (mode === "check") {
   // Verify all versions match
@@ -26,11 +34,15 @@ if (mode === "check") {
     );
     mismatch = true;
   }
-  if (cargoVersion !== version) {
-    console.error(
-      `[sync-version] MISMATCH: Cargo.toml "${cargoVersion}" != package.json "${version}"`,
-    );
-    mismatch = true;
+  for (const cargoPath of cargoTomlPaths) {
+    const cargoVersion = readCargoVersion(cargoPath);
+    if (cargoVersion && cargoVersion !== version) {
+      const rel = cargoPath.replace(root + "/", "").replace(root + "\\", "");
+      console.error(
+        `[sync-version] MISMATCH: ${rel} "${cargoVersion}" != package.json "${version}"`,
+      );
+      mismatch = true;
+    }
   }
   if (mismatch) {
     console.error(
@@ -50,14 +62,20 @@ if (mode === "check") {
     changed = true;
   }
 
-  if (cargoVersion !== version) {
-    const updated = cargoToml.replace(
-      /^(version\s*=\s*")(.+?)(")/m,
-      `$1${version}$3`,
-    );
-    writeFileSync(cargoTomlPath, updated);
-    console.log(`[sync-version] Cargo.toml -> ${version}`);
-    changed = true;
+  for (const cargoPath of cargoTomlPaths) {
+    if (!existsSync(cargoPath)) continue;
+    const cargoVersion = readCargoVersion(cargoPath);
+    if (cargoVersion && cargoVersion !== version) {
+      const content = readFileSync(cargoPath, "utf-8");
+      const updated = content.replace(
+        /^(version\s*=\s*")(.+?)(")/m,
+        `$1${version}$3`,
+      );
+      writeFileSync(cargoPath, updated);
+      const rel = cargoPath.replace(root + "/", "").replace(root + "\\", "");
+      console.log(`[sync-version] ${rel} -> ${version}`);
+      changed = true;
+    }
   }
 
   if (!changed) {
