@@ -106,6 +106,7 @@ jobs:
           gh release upload ${{ github.ref_name }} "${{ steps.portable.outputs.PORTABLE_ZIP }}" --clobber
 
   web-server:
+    needs: release
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
