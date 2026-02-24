@@ -4,7 +4,9 @@ import path from "path";
 
 const host = process.env.TAURI_DEV_HOST;
 
-export default defineConfig(async () => ({
+export default defineConfig(async () => {
+  const pkg = await import("./package.json", { with: { type: "json" } });
+  return {
   plugins: [react()],
   resolve: {
     alias: {
@@ -13,6 +15,7 @@ export default defineConfig(async () => ({
   },
   define: {
     __IS_TAURI__: JSON.stringify(!!process.env.TAURI_ENV_PLATFORM),
+    __APP_VERSION__: JSON.stringify(pkg.default.version),
   },
   build: {
     target: "es2022",
@@ -33,4 +36,4 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
-}));
+}});

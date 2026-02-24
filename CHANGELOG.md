@@ -4,6 +4,28 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.3.0] - 2026-02-24
+
+### Added
+
+#### "关于作者"弹窗
+- Sidebar 底部新增"关于作者"按钮（带边框文字按钮），点击弹出模态框
+- 模态框展示作者信息：作者名称、邮箱、QQ 群号、哔哩哔哩主页、GitHub 仓库链接
+- 每项带对应图标（lucide + 自定义 SVG），邮箱/哔哩哔哩/GitHub 均可点击跳转
+- Tauri 桌面模式下使用 `@tauri-apps/plugin-shell` 打开外部链接，Web 模式下 fallback 到 `window.open`
+- 点击背景遮罩或右上角关闭按钮均可关闭弹窗
+- 浅色/暗色主题样式均适配
+
+#### 前端版本号注入
+- `vite.config.ts` 新增 `__APP_VERSION__` 编译时变量，从 `package.json` 读取版本号注入前端
+
+### Fixed
+
+#### 文件监听器删除会话后无限刷新
+- 添加 debounce 防抖机制，防止删除会话后触发文件变更事件导致界面无限刷新
+
+---
+
 ## [1.1.0] - 2026-02-24
 
 ### Added
@@ -357,6 +379,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.3.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.3.0
 [1.1.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.1.0
 [1.0.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.0.1
 [1.0.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.0.0
