@@ -10,22 +10,29 @@ import { formatTime } from "./utils";
 interface Props {
   message: DisplayMessage;
   source: string;
+  showTimestamp: boolean;
+  showModel: boolean;
 }
 
-export function AssistantMessage({ message, source }: Props) {
+export function AssistantMessage({ message, source, showTimestamp, showModel }: Props) {
   const assistantName = source === "codex" ? "Codex" : "Claude";
   const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
   const iconBg = source === "codex" ? "bg-green-500/10" : "bg-orange-500/10";
 
   return (
-    <div className="flex gap-3 rounded-lg p-4 border border-border/50">
-      <div className={`shrink-0 w-7 h-7 rounded-full ${iconBg} flex items-center justify-center`}>
+    <div className="flex gap-3">
+      <div className={`shrink-0 w-7 h-7 rounded-full ${iconBg} flex items-center justify-center mt-0.5`}>
         <Bot className={`w-3.5 h-3.5 ${iconColor}`} />
       </div>
       <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-baseline gap-2 mb-1">
           <span className="text-sm font-medium">{assistantName}</span>
-          {message.timestamp && (
+          {showModel && message.model && (
+            <span className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
+              {message.model}
+            </span>
+          )}
+          {showTimestamp && message.timestamp && (
             <span className="text-xs text-muted-foreground">
               {formatTime(message.timestamp)}
             </span>
@@ -178,7 +185,7 @@ function ThinkingBlock({ thinking }: { thinking: string }) {
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
-        <Brain className="w-3.5 h-3.5" />
+        <Brain className="w-3.5 h-3.5 shrink-0" />
         思考过程
         {expanded ? (
           <ChevronDown className="w-3 h-3" />
@@ -204,7 +211,7 @@ function ReasoningBlock({ text }: { text: string }) {
         onClick={() => setExpanded(!expanded)}
         className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
-        <Brain className="w-3.5 h-3.5" />
+        <Brain className="w-3.5 h-3.5 shrink-0" />
         推理过程
         {expanded ? (
           <ChevronDown className="w-3 h-3" />

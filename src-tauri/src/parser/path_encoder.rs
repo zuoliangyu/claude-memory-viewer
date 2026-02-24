@@ -15,30 +15,19 @@ pub fn get_stats_cache_path() -> Option<PathBuf> {
     get_claude_home().map(|h| h.join("stats-cache.json"))
 }
 
-/// Decode an encoded project directory name back to a path
-/// e.g. "C--Users-zuolan-Desktop-LB" -> "C:\Users\zuolan\Desktop\LB" (on Windows)
-/// The encoding replaces path separators with '-' and ':' with '-'
+/// Decode an encoded project directory name back to a path (best-effort fallback)
+/// Prefer using originalPath from sessions-index.json when available
 pub fn decode_project_path(encoded: &str) -> String {
-    // The encoding scheme used by Claude:
-    // - Path separators (/ or \) are replaced with '-'
-    // - Drive colon (C:) becomes "C-"
-    // So "C--Users-zuolan-Desktop-LB" means "C:\Users\zuolan\Desktop\LB" on Windows
-    // And "-Users-zuolan-Desktop-LB" means "/Users/zuolan/Desktop/LB" on Unix
-
     if cfg!(windows) {
-        // On Windows, the pattern is like "C--Users-foo-bar"
-        // First char + '-' is drive letter + ':'
-        // Then each '-' is a path separator
         if encoded.len() >= 2 && encoded.chars().nth(1) == Some('-') {
             let drive = &encoded[0..1];
-            let rest = &encoded[2..]; // skip "C-"
+            let rest = &encoded[2..];
             let path_part = rest.replace('-', "\\");
             format!("{}:{}", drive, path_part)
         } else {
             encoded.replace('-', "\\")
         }
     } else {
-        // On Unix, pattern is like "-Users-zuolan-Desktop-LB" -> "/Users/zuolan/Desktop/LB"
         encoded.replace('-', "/")
     }
 }

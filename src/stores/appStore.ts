@@ -13,6 +13,12 @@ interface AppState {
   source: "claude" | "codex";
   setSource: (s: "claude" | "codex") => void;
 
+  // Display settings
+  showTimestamp: boolean;
+  showModel: boolean;
+  toggleTimestamp: () => void;
+  toggleModel: () => void;
+
   // Projects
   projects: ProjectEntry[];
   projectsLoading: boolean;
@@ -66,6 +72,19 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
+  showTimestamp: localStorage.getItem("showTimestamp") !== "false",
+  showModel: localStorage.getItem("showModel") !== "false",
+  toggleTimestamp: () => {
+    const next = !get().showTimestamp;
+    localStorage.setItem("showTimestamp", String(next));
+    set({ showTimestamp: next });
+  },
+  toggleModel: () => {
+    const next = !get().showModel;
+    localStorage.setItem("showModel", String(next));
+    set({ showModel: next });
+  },
+
   projects: [],
   projectsLoading: false,
   selectedProject: null,
@@ -109,7 +128,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
     try {
       const sessions = await api.getSessions(get().source, projectId);
-      set({ sessions, sessionsLoading: false });
+      set((state) => ({
+        sessions,
+        sessionsLoading: false,
+        projects: state.projects.map((p) =>
+          p.id === projectId ? { ...p, sessionCount: sessions.length } : p
+        ),
+      }));
     } catch (e) {
       console.error("Failed to load sessions:", e);
       set({ sessionsLoading: false });

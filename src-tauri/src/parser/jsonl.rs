@@ -63,6 +63,7 @@ pub fn parse_session_messages(
                 uuid: record.uuid,
                 role: msg.role,
                 timestamp: record.timestamp,
+                model: msg.model,
                 content: display_blocks,
             });
         }
@@ -154,6 +155,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
                 uuid: record.uuid,
                 role: msg.role,
                 timestamp: record.timestamp,
+                model: msg.model,
                 content: display_blocks,
             });
         }

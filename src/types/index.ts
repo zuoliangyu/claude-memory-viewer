@@ -39,6 +39,7 @@ export interface DisplayMessage {
   uuid: string | null;
   role: string;
   timestamp: string | null;
+  model: string | null;
   content: DisplayContentBlock[];
 }
 

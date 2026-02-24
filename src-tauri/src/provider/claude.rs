@@ -31,7 +31,15 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
             None => continue,
         };
 
-        let display_path = decode_project_path(&encoded_name);
+        // Prefer originalPath from sessions-index.json for accurate display
+        let display_path = {
+            let index_path = path.join("sessions-index.json");
+            fs::read_to_string(&index_path)
+                .ok()
+                .and_then(|c| serde_json::from_str::<SessionsIndex>(&c).ok())
+                .and_then(|idx| idx.original_path)
+                .unwrap_or_else(|| decode_project_path(&encoded_name))
+        };
         let short_name = short_name_from_path(&display_path);
 
         let session_count = fs::read_dir(&path)
@@ -142,6 +150,7 @@ pub fn get_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>, String
             }
 
             entries.sort_by(|a, b| b.modified.cmp(&a.modified));
+            entries.retain(|e| e.message_count > 0);
             return Ok(entries);
         }
     }
@@ -263,6 +272,7 @@ fn scan_sessions_from_dir(project_dir: &std::path::Path) -> Result<Vec<SessionIn
     }
 
     entries.sort_by(|a, b| b.modified.cmp(&a.modified));
+    entries.retain(|e| e.message_count > 0);
     Ok(entries)
 }
 

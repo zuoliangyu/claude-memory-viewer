@@ -81,6 +81,7 @@
 - 默认从最新消息加载，进入会话直接看到最近对话
 - 向上滚动自动加载更早的消息，滚动位置自动保持
 - 浮动"跳转到顶部/底部"双向按钮
+- 时间戳 / 模型标签可切换显示，偏好持久化
 
 ### Resume Session
 
@@ -337,8 +338,8 @@ npx tauri build
 项目使用 GitHub Actions 自动化构建和发布。创建一个 `v*` 格式的 tag 即可触发多平台构建：
 
 ```bash
-git tag v0.7.0
-git push origin v0.7.0
+git tag v0.8.0
+git push origin v0.8.0
 ```
 
 GitHub Actions 会自动：
@@ -365,6 +366,8 @@ GitHub Actions 会自动：
 - [x] 反向加载消息（默认显示最新对话）
 - [x] 内嵌 Inter + JetBrains Mono 字体
 - [x] 消息卡片样式 + 用户消息 Markdown 渲染
+- [x] 聊天气泡式消息布局
+- [x] 消息显示模型名称 + 时间戳/模型切换按钮
 - [ ] 自定义标题栏
 - [ ] 更多 AI CLI 数据源支持（Gemini CLI 等）
 

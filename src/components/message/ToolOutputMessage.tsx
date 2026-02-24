@@ -5,20 +5,19 @@ import { formatTime } from "./utils";
 
 interface Props {
   message: DisplayMessage;
+  showTimestamp: boolean;
 }
 
-export function ToolOutputMessage({ message }: Props) {
+export function ToolOutputMessage({ message, showTimestamp }: Props) {
   const [expanded, setExpanded] = useState(false);
 
   return (
-    <div className="flex gap-3 ml-10 rounded-lg p-3 bg-muted/30 border border-border/30">
-      <div className="shrink-0 w-7 h-7 rounded-full bg-amber-500/10 flex items-center justify-center">
-        <Terminal className="w-3.5 h-3.5 text-amber-500" />
-      </div>
+    <div className="flex gap-3 ml-10">
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-medium text-amber-400">Tool Output</span>
-          {message.timestamp && (
+          <Terminal className="w-3 h-3 text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">Tool Output</span>
+          {showTimestamp && message.timestamp && (
             <span className="text-xs text-muted-foreground">
               {formatTime(message.timestamp)}
             </span>

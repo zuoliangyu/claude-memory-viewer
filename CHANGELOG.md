@@ -4,6 +4,49 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-02-24
+
+### Added
+
+#### 消息显示模型名称
+- 后端解析 JSONL 记录中的 `model` 字段并传递到前端
+- AI 消息头部新增模型标签（如 `claude-sonnet-4-20250514`），一眼看清每条消息使用的模型
+- Codex 消息暂无模型字段，保持兼容
+
+#### 时间戳 / 模型标签切换按钮
+- 消息页顶栏新增时钟和 CPU 图标按钮，可独立切换时间戳和模型标签的显示
+- 偏好持久化到 localStorage，页面刷新后保持设置
+
+#### 项目路径显示优化
+- Claude 项目列表现在优先从 `sessions-index.json` 的 `originalPath` 读取真实项目路径
+- 不再仅依赖目录名反向解码，解决含特殊字符的路径显示不准确的问题
+
+### Changed
+
+#### 聊天气泡式消息布局
+- 用户消息改为右对齐气泡样式（`bg-primary/10` 圆角卡片），更贴近即时通讯体验
+- AI 消息移除边框卡片，改为简洁的图标 + 内容布局
+- 工具输出移除独立背景和圆形图标，改为紧凑的小图标 + 标签样式，视觉层级更清晰
+- 消息线程最大宽度从 `max-w-4xl` 收窄到 `max-w-3xl`，消息间距从 `space-y-3` 增大到 `space-y-6`
+
+#### 过滤空会话
+- 会话列表现在自动过滤掉消息数为 0 的空会话
+- 加载会话后同步更新项目卡片上的会话计数
+
+### Fixed
+
+#### Markdown 行内代码多余引号
+- 修复 `@tailwindcss/typography` 为行内 `code` 标签自动添加反引号伪元素的问题
+- 添加 CSS 规则移除 `::before` / `::after` 的 content，行内代码不再显示多余的引号
+
+#### 会话卡片布局
+- 会话列表卡片改用 `items-center` 垂直居中对齐，修复按钮和文字未对齐的问题
+
+#### 思考/推理块图标溢出
+- 为 Thinking 和 Reasoning 块的 Brain 图标添加 `shrink-0`，防止图标在窄屏下被压缩
+
+---
+
 ## [0.7.0] - 2026-02-24
 
 ### Added
@@ -229,6 +272,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[0.8.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.8.0
 [0.7.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.7.0
 [0.6.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.6.1
 [0.6.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v0.6.0

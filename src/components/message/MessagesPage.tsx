@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
-import { ArrowLeft, Play, Loader2, ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowLeft, Play, Loader2, ArrowDown, ArrowUp, Clock, Cpu } from "lucide-react";
 import { MessageThread } from "./MessageThread";
 import { resumeSession } from "../../services/tauriApi";
 
@@ -24,6 +24,10 @@ export function MessagesPage() {
     loadMoreMessages,
     sessions,
     projects,
+    showTimestamp,
+    showModel,
+    toggleTimestamp,
+    toggleModel,
   } = useAppStore();
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -126,13 +130,33 @@ export function MessagesPage() {
             </p>
           </div>
         </div>
-        <button
-          onClick={handleResume}
-          className="shrink-0 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
-        >
-          <Play className="w-3 h-3" />
-          Resume
-        </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={toggleTimestamp}
+            className={`p-1.5 rounded transition-colors ${
+              showTimestamp ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+            }`}
+            title="显示时间"
+          >
+            <Clock className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={toggleModel}
+            className={`p-1.5 rounded transition-colors ${
+              showModel ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"
+            }`}
+            title="显示模型"
+          >
+            <Cpu className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={handleResume}
+            className="ml-1 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
+          >
+            <Play className="w-3 h-3" />
+            Resume
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
@@ -159,7 +183,7 @@ export function MessagesPage() {
             加载消息中...
           </div>
         ) : (
-          <MessageThread messages={messages} source={source} />
+          <MessageThread messages={messages} source={source} showTimestamp={showTimestamp} showModel={showModel} />
         )}
         {!messagesLoading && messages.length > 0 && (
           <div className="text-center py-4 text-xs text-muted-foreground">

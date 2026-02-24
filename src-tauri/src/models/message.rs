@@ -27,6 +27,7 @@ pub struct RawRecord {
 pub struct RawMessage {
     pub role: String,
     pub content: ContentValue,
+    pub model: Option<String>,
 }
 
 /// Content can be a simple string or an array of content blocks
@@ -71,6 +72,7 @@ pub struct DisplayMessage {
     pub uuid: Option<String>,
     pub role: String,
     pub timestamp: Option<String>,
+    pub model: Option<String>,
     pub content: Vec<DisplayContentBlock>,
 }
 

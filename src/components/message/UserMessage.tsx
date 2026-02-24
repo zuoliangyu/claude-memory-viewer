@@ -6,27 +6,24 @@ import { formatTime } from "./utils";
 
 interface Props {
   message: DisplayMessage;
+  showTimestamp: boolean;
 }
 
-export function UserMessage({ message }: Props) {
+export function UserMessage({ message, showTimestamp }: Props) {
   return (
-    <div className="flex gap-3 bg-primary/5 rounded-lg p-4">
-      <div className="shrink-0 w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center">
-        <User className="w-3.5 h-3.5 text-primary" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-sm font-medium">用户</span>
-          {message.timestamp && (
+    <div className="flex justify-end">
+      <div className="max-w-[85%]">
+        {showTimestamp && message.timestamp && (
+          <div className="flex items-center justify-end gap-2 mb-1">
             <span className="text-xs text-muted-foreground">
               {formatTime(message.timestamp)}
             </span>
-          )}
-        </div>
+          </div>
+        )}
         {message.content.map((block, i) => {
           if (block.type === "text") {
             return (
-              <div key={i} className="prose prose-sm max-w-none text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+              <div key={i} className="bg-primary/10 rounded-2xl px-4 py-2.5 text-sm leading-relaxed">
                 <ReactMarkdown remarkPlugins={[remarkGfm]}>
                   {block.text}
                 </ReactMarkdown>

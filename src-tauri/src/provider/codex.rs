@@ -407,6 +407,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
                                 uuid: None,
                                 role: role.to_string(),
                                 timestamp: timestamp.clone(),
+                                model: None,
                                 content: content_blocks,
                             });
                         }
@@ -443,6 +444,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
                         uuid: None,
                         role: "assistant".to_string(),
                         timestamp: timestamp.clone(),
+                        model: None,
                         content: vec![DisplayContentBlock::FunctionCall {
                             name,
                             arguments: truncate_string(&arguments, MAX_ARGS_SIZE),
@@ -471,6 +473,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
                         uuid: None,
                         role: "tool".to_string(),
                         timestamp: timestamp.clone(),
+                        model: None,
                         content: vec![DisplayContentBlock::FunctionCallOutput {
                             call_id,
                             output: truncate_string(&output, MAX_OUTPUT_BLOCK_SIZE),
@@ -500,6 +503,7 @@ pub fn parse_all_messages(path: &Path) -> Result<Vec<DisplayMessage>, String> {
                             uuid: None,
                             role: "assistant".to_string(),
                             timestamp: timestamp.clone(),
+                            model: None,
                             content: vec![DisplayContentBlock::Reasoning { text }],
                         });
                     }
