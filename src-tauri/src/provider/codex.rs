@@ -319,12 +319,8 @@ pub fn parse_session_messages(
     let total = all_messages.len();
 
     if from_end {
-        let end = if total > page * page_size {
-            total - page * page_size
-        } else {
-            0
-        };
-        let start = if end > page_size { end - page_size } else { 0 };
+        let end = total.saturating_sub(page * page_size);
+        let start = end.saturating_sub(page_size);
         let has_more = start > 0;
 
         let page_messages = if end > 0 {
