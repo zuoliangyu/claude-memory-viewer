@@ -95,10 +95,21 @@ docker compose up
 Web 服务器支持公网访问。将 `--host` 设为 `0.0.0.0` 即可监听所有网卡：
 
 ```bash
+# 直接运行
 ./session-web --host 0.0.0.0 --port 8080 --token my-secret
+
+# Docker（取消 docker-compose.yml 中 ASV_TOKEN 的注释，映射端口到公网）
+docker compose up -d
 ```
 
-> **安全提示：** 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含完整会话记录。公网暴露时**务必设置 `--token`** 启用 Bearer Token 认证。此外，应用本身不提供 HTTPS，生产环境建议前置 Nginx / Caddy 做反向代理并启用 TLS。
+Docker 默认已监听 `0.0.0.0`（通过 `ports: "3000:3000"`），只需在 `docker-compose.yml` 中取消 `ASV_TOKEN` 的注释并设置密钥即可安全地公网使用：
+
+```yaml
+environment:
+  ASV_TOKEN: my-secret
+```
+
+> **安全提示：** 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含完整会话记录。公网暴露时**务必设置 Token** 启用 Bearer Token 认证。此外，应用本身不提供 HTTPS，生产环境建议前置 Nginx / Caddy 做反向代理并启用 TLS。
 
 ### Web 版与桌面版的差异
 
