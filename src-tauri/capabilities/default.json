@@ -10,6 +10,7 @@
     "fs:allow-read-text-file",
     "fs:default",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "dialog:default"
   ]
 }

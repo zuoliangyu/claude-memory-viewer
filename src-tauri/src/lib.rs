@@ -1,6 +1,7 @@
 mod commands;
 mod watcher;
 
+use commands::chat::ChatProcessState;
 use session_core::state::AppState;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -9,7 +10,9 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new())
+        .manage(ChatProcessState::new())
         .invoke_handler(tauri::generate_handler![
             commands::projects::get_projects,
             commands::sessions::get_sessions,
@@ -22,6 +25,13 @@ pub fn run() {
             commands::stats::get_stats,
             commands::terminal::resume_session,
             commands::updater::get_install_type,
+            commands::chat::detect_cli,
+            commands::chat::get_cli_config,
+            commands::chat::list_models,
+            commands::chat::start_chat,
+            commands::chat::continue_chat,
+            commands::chat::cancel_chat,
+            commands::chat::quick_chat,
         ])
         .setup(|app| {
             #[cfg(desktop)]

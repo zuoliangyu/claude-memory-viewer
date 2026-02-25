@@ -1,7 +1,11 @@
+pub mod cli;
+pub mod cli_config;
 pub mod metadata;
+pub mod model_list;
 pub mod models;
 pub mod parser;
 pub mod provider;
+pub mod quick_chat;
 pub mod search;
 pub mod state;
 pub mod stats;

@@ -5,6 +5,8 @@ import { SessionsPage } from "./components/session/SessionsPage";
 import { MessagesPage } from "./components/message/MessagesPage";
 import { SearchPage } from "./components/search/SearchPage";
 import { StatsPage } from "./components/stats/StatsPage";
+import { ChatPage } from "./components/chat/ChatPage";
+import { QuickChatPage } from "./components/quick-chat/QuickChatPage";
 
 function App() {
   return (
@@ -19,6 +21,9 @@ function App() {
         />
         <Route path="/search" element={<SearchPage />} />
         <Route path="/stats" element={<StatsPage />} />
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/chat/:sessionId" element={<ChatPage />} />
+        <Route path="/quick-chat" element={<QuickChatPage />} />
       </Route>
     </Routes>
   );

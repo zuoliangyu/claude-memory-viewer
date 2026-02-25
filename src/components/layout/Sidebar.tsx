@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
+import { useChatStore } from "../../stores/chatStore";
 import { useTheme } from "../../hooks/useTheme";
 import { useUpdateChecker } from "../../hooks/useUpdateChecker";
 import { useFileWatcher } from "../../hooks/useFileWatcher";
@@ -21,6 +22,14 @@ import {
   Users,
   Github,
   ExternalLink,
+  MessageSquarePlus,
+  Zap,
+  RefreshCw,
+  Plus,
+  Trash2,
+  Check,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 
 declare const __IS_TAURI__: boolean;
@@ -33,7 +42,7 @@ export function Sidebar() {
     useAppStore();
   const { theme, setTheme } = useTheme();
   const [showSettings, setShowSettings] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"guide" | "about">("guide");
+  const [settingsTab, setSettingsTab] = useState<"guide" | "chat" | "about">("guide");
   useUpdateChecker();
   useFileWatcher();
 
@@ -99,6 +108,28 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto p-2">
         {/* Quick links */}
         <div className="mb-4">
+          <button
+            onClick={() => navigate("/chat")}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+              location.pathname.startsWith("/chat")
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            }`}
+          >
+            <MessageSquarePlus className="w-4 h-4" />
+            CLI 对话
+          </button>
+          <button
+            onClick={() => navigate("/quick-chat")}
+            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+              location.pathname === "/quick-chat"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            }`}
+          >
+            <Zap className="w-4 h-4" />
+            快速问答
+          </button>
           <button
             onClick={() => navigate("/search")}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
@@ -245,6 +276,16 @@ export function Sidebar() {
                 使用说明
               </button>
               <button
+                onClick={() => setSettingsTab("chat")}
+                className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
+                  settingsTab === "chat"
+                    ? "text-foreground border-b-2 border-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                对话设置
+              </button>
+              <button
                 onClick={() => setSettingsTab("about")}
                 className={`flex-1 px-4 py-2 text-sm font-medium transition-colors ${
                   settingsTab === "about"
@@ -257,7 +298,9 @@ export function Sidebar() {
             </div>
             {/* Body */}
             <div className="max-h-[70vh] overflow-y-auto">
-              {settingsTab === "guide" ? (
+              {settingsTab === "chat" ? (
+                <ChatSettingsTab />
+              ) : settingsTab === "guide" ? (
                 <div className="p-4 space-y-4 text-sm text-foreground">
                   <section>
                     <h3 className="font-medium mb-1.5">侧边栏</h3>
@@ -350,5 +393,384 @@ export function Sidebar() {
         </div>
       )}
     </aside>
+  );
+}
+
+function ProviderModelManager({ source }: { source: "claude" | "codex" }) {
+  const {
+    modelList,
+    modelListLoading,
+    modelListError,
+    fetchModelList,
+    addCustomModel,
+    removeCustomModel,
+  } = useChatStore();
+
+  const [showAddInput, setShowAddInput] = useState(false);
+  const [newModelIds, setNewModelIds] = useState("");
+  const [fetched, setFetched] = useState(false);
+  const [addedCount, setAddedCount] = useState<number | null>(null);
+
+  const customModelIds = useMemo(() => {
+    const key = `chat_customModels_${source}`;
+    try {
+      return new Set<string>(JSON.parse(localStorage.getItem(key) || "[]"));
+    } catch {
+      return new Set<string>();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source, modelList]);
+
+  const handleFetch = async () => {
+    await fetchModelList(source);
+    setFetched(true);
+  };
+
+  // Parse input: support comma, newline, semicolon separated
+  const parseModelIds = (input: string): string[] => {
+    return input
+      .split(/[,;\n]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  };
+
+  const handleBatchAdd = () => {
+    const ids = parseModelIds(newModelIds);
+    if (ids.length === 0) return;
+    let count = 0;
+    for (const id of ids) {
+      // Avoid duplicates
+      if (!modelList.some((m) => m.id === id)) {
+        addCustomModel(id);
+        count++;
+      }
+    }
+    setAddedCount(count);
+    setNewModelIds("");
+    setShowAddInput(false);
+    // Clear the toast after 2s
+    setTimeout(() => setAddedCount(null), 2000);
+  };
+
+  const parsedCount = parseModelIds(newModelIds).length;
+
+  // Group models
+  const grouped = useMemo(() => {
+    const groups: Record<string, typeof modelList> = {};
+    for (const m of modelList) {
+      if (!groups[m.group]) groups[m.group] = [];
+      groups[m.group].push(m);
+    }
+    return groups;
+  }, [modelList]);
+
+  return (
+    <div className="space-y-2">
+      {/* Action buttons */}
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={handleFetch}
+          disabled={modelListLoading}
+          className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-border bg-muted text-foreground hover:bg-accent/50 transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3 h-3 ${modelListLoading ? "animate-spin" : ""}`} />
+          {fetched ? "刷新" : "获取模型列表"}
+        </button>
+        <button
+          onClick={() => { setShowAddInput((v) => !v); setAddedCount(null); }}
+          className={`flex items-center gap-1 px-2 py-1 text-xs rounded border transition-colors ${
+            showAddInput
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-border bg-muted text-foreground hover:bg-accent/50"
+          }`}
+        >
+          <Plus className="w-3 h-3" />
+          批量添加
+        </button>
+        {fetched && !modelListLoading && (
+          <span className="text-[10px] text-muted-foreground ml-auto">
+            共 {modelList.length} 个模型
+          </span>
+        )}
+      </div>
+
+      {/* Added toast */}
+      {addedCount !== null && (
+        <div className="flex items-center gap-1 text-xs text-green-500">
+          <Check className="w-3 h-3" />
+          已添加 {addedCount} 个模型
+        </div>
+      )}
+
+      {/* Batch add input */}
+      {showAddInput && (
+        <div className="space-y-1.5">
+          <textarea
+            value={newModelIds}
+            onChange={(e) => setNewModelIds(e.target.value)}
+            onKeyDown={(e) => {
+              // Ctrl+Enter to submit
+              if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                e.preventDefault();
+                handleBatchAdd();
+              }
+              if (e.key === "Escape") {
+                e.preventDefault();
+                setShowAddInput(false);
+              }
+            }}
+            placeholder={"每行一个模型 ID，或用逗号分隔\n例如：\nclaude-sonnet-4-20250514\nclaude-opus-4-20250514"}
+            rows={4}
+            className="w-full bg-muted border border-border rounded px-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary resize-none font-mono"
+            autoFocus
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground">
+              {parsedCount > 0 ? `已识别 ${parsedCount} 个模型 ID` : "输入模型 ID"}
+            </span>
+            <button
+              onClick={handleBatchAdd}
+              disabled={parsedCount === 0}
+              className="px-2 py-1 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              添加 {parsedCount > 0 && `(${parsedCount})`}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Loading */}
+      {modelListLoading && (
+        <div className="flex items-center gap-1.5 py-2 text-xs text-muted-foreground">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          加载中...
+        </div>
+      )}
+
+      {/* Error */}
+      {modelListError && (
+        <div className="flex items-center gap-1.5 py-1 text-xs text-red-400">
+          <AlertCircle className="w-3 h-3 shrink-0" />
+          <span className="truncate">{modelListError}</span>
+        </div>
+      )}
+
+      {/* Model list — display only, no select */}
+      {fetched && !modelListLoading && modelList.length > 0 && (
+        <div className="border border-border rounded max-h-48 overflow-y-auto">
+          {Object.entries(grouped).map(([group, models]) => (
+            <div key={group}>
+              <div className="px-2 py-0.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider bg-muted/50 sticky top-0">
+                {group} ({models.length})
+              </div>
+              {models.map((m) => {
+                const isCustom = customModelIds.has(m.id);
+                return (
+                  <div
+                    key={m.id}
+                    className="flex items-center gap-1.5 px-2 py-1 text-xs hover:bg-accent/30 transition-colors group"
+                  >
+                    <span className="truncate flex-1 text-foreground" title={m.id}>
+                      {m.name}
+                    </span>
+                    {m.id !== m.name && (
+                      <span className="text-[10px] text-muted-foreground truncate max-w-[8rem]">
+                        {m.id}
+                      </span>
+                    )}
+                    {isCustom && (
+                      <button
+                        onClick={() => removeCustomModel(m.id)}
+                        className="p-0.5 rounded text-transparent group-hover:text-muted-foreground hover:!text-red-400 transition-colors shrink-0"
+                        title="移除自定义模型"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {fetched && !modelListLoading && modelList.length === 0 && !modelListError && (
+        <p className="text-xs text-muted-foreground py-1">未获取到模型，请检查配置是否正确</p>
+      )}
+    </div>
+  );
+}
+
+function CliConfigDisplay({ source }: { source: "claude" | "codex" }) {
+  const { cliConfig, cliConfigLoading, cliConfigError, fetchCliConfig } = useChatStore();
+  const [fetched, setFetched] = useState(false);
+
+  const handleFetch = async () => {
+    await fetchCliConfig(source);
+    setFetched(true);
+  };
+
+  useEffect(() => {
+    if (!fetched) {
+      handleFetch();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [source]);
+
+  if (cliConfigLoading) {
+    return (
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Loader2 className="w-3 h-3 animate-spin" />
+        检测中...
+      </div>
+    );
+  }
+
+  if (cliConfigError) {
+    return (
+      <div className="space-y-1">
+        <div className="flex items-center gap-1.5 text-xs text-red-400">
+          <AlertCircle className="w-3 h-3" />
+          {cliConfigError}
+        </div>
+        <button onClick={handleFetch} className="text-xs text-primary hover:text-primary/80">
+          重试
+        </button>
+      </div>
+    );
+  }
+
+  if (!cliConfig || cliConfig.source !== source) {
+    return (
+      <button onClick={handleFetch} className="text-xs text-primary hover:text-primary/80">
+        检测配置
+      </button>
+    );
+  }
+
+  return (
+    <div className="space-y-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <div className={`w-1.5 h-1.5 rounded-full ${cliConfig.hasApiKey ? "bg-green-500" : "bg-red-500"}`} />
+        <span className="text-muted-foreground">API Key:</span>
+        <span className="text-foreground font-mono">
+          {cliConfig.hasApiKey ? cliConfig.apiKeyMasked : "未配置"}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground ml-3.5">Base URL:</span>
+        <span className="text-foreground font-mono truncate">{cliConfig.baseUrl}</span>
+      </div>
+      {cliConfig.defaultModel && (
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground ml-3.5">默认模型:</span>
+          <span className="text-foreground font-mono">{cliConfig.defaultModel}</span>
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground ml-3.5">配置文件:</span>
+        <span className="text-foreground/60 font-mono truncate text-[10px]">{cliConfig.configPath}</span>
+      </div>
+      <button onClick={handleFetch} className="text-xs text-primary hover:text-primary/80 mt-1">
+        重新检测
+      </button>
+    </div>
+  );
+}
+
+function ChatSettingsTab() {
+  const {
+    skipPermissions,
+    setSkipPermissions,
+    defaultModel,
+    setDefaultModel,
+    availableClis,
+    detectCli,
+  } = useChatStore();
+
+  return (
+    <div className="p-4 space-y-4 text-sm">
+      <section>
+        <h3 className="font-medium mb-2 text-foreground">CLI 状态</h3>
+        <div className="space-y-1.5">
+          {availableClis.length > 0 ? (
+            availableClis.map((cli, i) => (
+              <div
+                key={i}
+                className="flex items-center gap-2 text-xs text-muted-foreground"
+              >
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full" />
+                <span className="capitalize font-medium">{cli.cliType}</span>
+                {cli.version && <span>v{cli.version}</span>}
+                <span className="truncate text-muted-foreground/60">
+                  {cli.path}
+                </span>
+              </div>
+            ))
+          ) : (
+            <p className="text-xs text-muted-foreground">未检测到已安装的 CLI</p>
+          )}
+          <button
+            onClick={() => detectCli()}
+            className="mt-1 text-xs text-primary hover:text-primary/80 transition-colors"
+          >
+            重新检测
+          </button>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="font-medium mb-2 text-foreground">默认模型</h3>
+        <input
+          type="text"
+          value={defaultModel}
+          onChange={(e) => setDefaultModel(e.target.value)}
+          placeholder="留空使用 CLI 配置中的默认模型"
+          className="w-full bg-muted border border-border rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+        <p className="mt-1 text-xs text-muted-foreground">
+          新建对话时使用的默认模型（优先于 CLI 配置）
+        </p>
+      </section>
+
+      {/* Anthropic (Claude) — auto-detected config */}
+      <section>
+        <h3 className="font-medium mb-2 text-foreground">Anthropic (Claude)</h3>
+        <CliConfigDisplay source="claude" />
+        <div className="mt-2">
+          <ProviderModelManager source="claude" />
+        </div>
+      </section>
+
+      {/* OpenAI (Codex) — auto-detected config */}
+      <section>
+        <h3 className="font-medium mb-2 text-foreground">OpenAI (Codex)</h3>
+        <CliConfigDisplay source="codex" />
+        <div className="mt-2">
+          <ProviderModelManager source="codex" />
+        </div>
+      </section>
+
+      <section>
+        <h3 className="font-medium mb-2 text-foreground">权限模式</h3>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={skipPermissions}
+            onChange={(e) => setSkipPermissions(e.target.checked)}
+            className="rounded border-border"
+          />
+          <span className="text-xs text-foreground">
+            跳过权限确认 (--dangerously-skip-permissions)
+          </span>
+        </label>
+        <p className="mt-1 text-xs text-yellow-500">
+          {skipPermissions
+            ? "警告：CLI 将自动执行所有工具操作而不请求确认"
+            : "CLI 会在执行文件修改等操作前请求确认"}
+        </p>
+      </section>
+    </div>
   );
 }

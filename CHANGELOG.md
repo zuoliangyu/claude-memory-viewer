@@ -4,6 +4,67 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.6.0] - 2026-02-26
+
+### Added
+
+#### CLI 对话模式
+- 侧边栏新增「CLI 对话」入口，可直接在应用内与 Claude Code / Codex CLI 进行对话
+- 自动检测本地已安装的 CLI 工具（Claude Code、Codex CLI）
+- 支持选择工作目录、切换数据源（Claude/Codex）
+- 流式输出：CLI 的 stdout 实时转发到前端，支持 Markdown 渲染
+- 支持 `--resume` 继续已有会话
+- 支持 `--dangerously-skip-permissions` 跳过权限确认
+- 支持通过输入框 `/model` 命令自由切换模型（如 `/model claude-opus-4-6`）
+- 消息详情页新增「继续对话」按钮，可在 CLI 对话模式中继续该会话
+
+#### 快速问答模式
+- 侧边栏新增「快速问答」入口，直接调用 Anthropic/OpenAI API 进行纯文本对话
+- 无需选择工作目录，无 CLI 依赖
+- 支持 Claude（Anthropic API）和 Codex（OpenAI API）双数据源
+- SSE 流式输出，Markdown 实时渲染
+- 独立对话历史，与 CLI 对话模式互不干扰
+
+#### CLI 配置自动检测
+- 新增 `cli_config` 模块，自动读取本地 CLI 配置文件获取 API Key 和 Base URL
+- Claude：从 `~/.claude/settings.json` 读取 `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` 和代理配置
+- Codex：从 `~/.codex/auth.json` 读取 `OPENAI_API_KEY`，从 `~/.codex/config.toml` 读取模型和 provider 配置
+- 模型列表获取无需手动输入 API Key，自动使用 CLI 配置
+- 设置面板显示检测到的 CLI 配置状态（遮罩 Key、Base URL、默认模型）
+
+#### 模型选择器增强
+- 内置 Claude（Sonnet 4.6 / Opus 4.6 / Haiku 4.5）和 Codex（codex-mini / o4-mini / o3 / gpt-4.1）常用模型列表
+- 支持 API 动态获取完整模型列表（有 API Key 时自动拉取）
+- 搜索无结果时，按回车可直接使用搜索词作为自定义模型 ID
+
+### Fixed
+
+#### CLI 进程环境变量隔离
+- **根因**：从 VS Code 终端启动 Tauri 开发服务器时，`CLAUDECODE` 等环境变量会被继承到 spawn 的 CLI 子进程，导致 CLI 运行异常（400 错误）
+- **修复**：采用环境变量白名单机制（`env_clear()` + 仅传递 PATH、HOME 等必要系统变量），参考 opcode 项目的隔离方案
+
+#### CLI 模型名 `-latest` 后缀不兼容
+- Claude CLI 不接受 `-latest` 后缀的模型名（如 `claude-sonnet-4-6-latest`），传给 CLI 前自动剥离该后缀
+
+### New Files
+
+| 文件 | 说明 |
+|------|------|
+| `crates/session-core/src/cli.rs` | CLI 安装检测与路径查找 |
+| `crates/session-core/src/cli_config.rs` | CLI 配置文件自动读取 |
+| `crates/session-core/src/model_list.rs` | 模型列表获取（内置 + API） |
+| `crates/session-core/src/quick_chat.rs` | 直接 API 流式对话 |
+| `crates/session-web/src/chat_ws.rs` | Web 端 WebSocket 聊天路由 |
+| `src-tauri/src/commands/chat.rs` | Tauri 聊天相关命令 |
+| `src/components/chat/*.tsx` | CLI 对话页面组件（7 个） |
+| `src/components/quick-chat/QuickChatPage.tsx` | 快速问答页面 |
+| `src/stores/chatStore.ts` | CLI 对话状态管理 |
+| `src/stores/quickChatStore.ts` | 快速问答状态管理 |
+| `src/hooks/useChatStream.ts` | 聊天流事件监听 Hook |
+| `src/types/chat.ts` | 聊天相关类型定义 |
+
+---
+
 ## [1.5.0] - 2026-02-25
 
 ### Added
@@ -445,6 +506,7 @@ First release of Claude Memory Viewer.
 - **Search**: Rayon parallel brute-force search across all JSONL files
 - **Path Handling**: Cross-platform Claude home detection (`%USERPROFILE%\.claude` on Windows, `~/.claude` on Unix)
 
+[1.6.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.6.0
 [1.5.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.5.0
 [1.4.0]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.4.0
 [1.3.1]: https://github.com/zuoliangyu/AI-Session-Viewer/releases/tag/v1.3.1

@@ -1,8 +1,12 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
-import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu } from "lucide-react";
+import { useChatStore } from "../../stores/chatStore";
+import { useChatStream } from "../../hooks/useChatStream";
+import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu, AlertCircle } from "lucide-react";
 import { MessageThread } from "./MessageThread";
+import { ChatInput } from "../chat/ChatInput";
+import { StreamingMessage } from "../chat/StreamingMessage";
 import { api } from "../../services/api";
 
 declare const __IS_TAURI__: boolean;
@@ -40,8 +44,51 @@ export function MessagesPage() {
   const prevScrollHeightRef = useRef<number>(0);
   const isLoadingOlderRef = useRef(false);
 
+  // Chat store for inline continue-chat
+  const {
+    messages: chatMessages,
+    isStreaming: chatStreaming,
+    error: chatError,
+    availableClis,
+    detectCli,
+    continueExistingChat,
+    cancelChat,
+    clearChat,
+    skipPermissions,
+    setProjectPath: setChatProjectPath,
+    setSource: setChatSource,
+    setModel: setChatModel,
+    model: chatModel,
+  } = useChatStore();
+
+  // Listen for chat stream events
+  useChatStream();
+
   const session = sessions.find((s) => s.filePath === filePath);
   const project = projects.find((p) => p.id === projectId);
+
+  const chatProjectPath = session?.projectPath || session?.cwd || project?.displayPath || "";
+  const cliAvailable = availableClis.some((c) => c.cliType === source);
+
+  // Detect CLI and set chat context on mount
+  useEffect(() => {
+    detectCli();
+  }, [detectCli]);
+
+  useEffect(() => {
+    setChatSource(source as "claude" | "codex");
+    setChatProjectPath(chatProjectPath);
+    if (!chatModel) {
+      setChatModel(source === "codex" ? "codex-mini-latest" : "claude-sonnet-4-20250514");
+    }
+  }, [source, chatProjectPath, chatModel, setChatSource, setChatProjectPath, setChatModel]);
+
+  // Clear chat state when leaving the page / switching sessions
+  useEffect(() => {
+    return () => {
+      clearChat();
+    };
+  }, [filePath, clearChat]);
 
   useEffect(() => {
     if (filePath) {
@@ -131,6 +178,26 @@ export function MessagesPage() {
     }
   };
 
+  // Auto-scroll when new chat messages arrive
+  useEffect(() => {
+    if (chatMessages.length > 0 || chatStreaming) {
+      requestAnimationFrame(() => {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+  }, [chatMessages, chatStreaming]);
+
+  const handleSendChat = (prompt: string) => {
+    if (!session) return;
+    continueExistingChat(
+      source as "claude" | "codex",
+      session.sessionId,
+      chatProjectPath,
+      prompt,
+      chatModel
+    );
+  };
+
   const assistantName = source === "claude" ? "Claude" : "Codex";
 
   return (
@@ -217,16 +284,56 @@ export function MessagesPage() {
         ) : (
           <MessageThread messages={messages} source={source} showTimestamp={showTimestamp} showModel={showModel} />
         )}
-        {!messagesLoading && messages.length > 0 && (
+        {!messagesLoading && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (
           <div className="text-center py-4 text-xs text-muted-foreground">
             — 会话结束 —
+          </div>
+        )}
+
+        {/* Inline streaming messages from continue-chat */}
+        {chatMessages.length > 0 && (
+          <div className="max-w-4xl mx-auto px-6 py-2 space-y-1 border-t border-dashed border-border mt-2">
+            {chatMessages.map((msg) => (
+              <StreamingMessage key={msg.id} message={msg} source={source} />
+            ))}
+          </div>
+        )}
+        {chatStreaming && (
+          <div className="max-w-4xl mx-auto px-6">
+            <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
+              <div className="flex gap-1">
+                <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:-0.3s]" />
+                <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce [animation-delay:-0.15s]" />
+                <div className="w-1.5 h-1.5 bg-muted-foreground rounded-full animate-bounce" />
+              </div>
+            </div>
+          </div>
+        )}
+        {chatError && (
+          <div className="max-w-4xl mx-auto px-6">
+            <div className="flex items-center gap-2 py-2 text-sm text-red-400">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              {chatError}
+            </div>
           </div>
         )}
         <div ref={bottomRef} />
       </div>
 
+      {/* Chat input */}
+      {session && cliAvailable && (
+        <div className="shrink-0">
+          <ChatInput
+            onSend={handleSendChat}
+            onCancel={cancelChat}
+            isStreaming={chatStreaming}
+            disabled={!chatProjectPath}
+          />
+        </div>
+      )}
+
       {/* Scroll buttons */}
-      <div className="absolute bottom-6 right-6 flex flex-col gap-2">
+      <div className="absolute bottom-20 right-6 flex flex-col gap-2">
         {showScrollUp && (
           <button
             onClick={scrollToTop}

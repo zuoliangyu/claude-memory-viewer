@@ -116,6 +116,8 @@ environment:
 | 功能 | 桌面应用 | Web 服务器 |
 |------|---------|-----------|
 | 恢复会话 | 打开系统终端 | 复制命令到剪贴板 |
+| CLI 对话 | 本地 spawn CLI 进程 | WebSocket 转发 |
+| 快速问答 | Tauri 事件流 | SSE 流式响应 |
 | 自动更新 | 应用内更新 | 不适用 |
 | 文件监听 | Tauri 事件 | WebSocket 推送 |
 | 认证 | 不需要 | 可选 Bearer Token |
@@ -220,6 +222,28 @@ environment:
 - 有更新时版本号旁显示蓝色脉冲圆点，点击展开内嵌更新面板
 - 支持忽略特定版本，不再重复提示
 - 基于 `tauri-plugin-updater` + Ed25519 签名验证
+
+### CLI 对话
+
+在应用内直接与 Claude Code / Codex CLI 进行对话，无需切换到终端：
+
+- 侧边栏点击「CLI 对话」进入，选择工作目录后即可开始
+- 自动检测本地已安装的 CLI 工具
+- 流式输出，实时渲染 AI 回复（Markdown + 代码高亮）
+- 支持 `--resume` 继续已有会话（消息详情页的「继续对话」按钮）
+- 输入框支持 `/model` 命令切换模型
+
+> **模型切换提示**：建议使用 `/model claude-opus-4-6` 的方式手动指定模型 ID，内置模型选择器存在已知 bug。模型 ID 示例：`claude-sonnet-4-6`、`claude-opus-4-6`、`claude-haiku-4-5`。
+
+### 快速问答
+
+不依赖 CLI，直接调用 API 进行纯文本对话：
+
+- 侧边栏点击「快速问答」进入
+- 自动读取本地 CLI 配置文件中的 API Key（无需手动输入）
+- 支持 Claude（Anthropic API）和 Codex（OpenAI API）
+- SSE 流式输出，Markdown 实时渲染
+- 无需选择工作目录，适合快速提问
 
 ### 实时刷新
 
@@ -356,7 +380,12 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | PUT | `/api/sessions/meta` | *(JSON body)* | 更新会话别名和标签 |
 | GET | `/api/tags` | `source, projectId` | 获取项目内所有标签 |
 | GET | `/api/cross-tags` | `source` | 获取跨项目全局标签 |
+| GET | `/api/cli/detect` | — | 检测本地已安装的 CLI 工具 |
+| GET | `/api/cli/config` | `source` | 读取 CLI 配置（API Key 遮罩） |
+| POST | `/api/models` | *(JSON body)* | 获取模型列表 |
+| POST | `/api/quick-chat` | *(JSON body)* | 快速问答（SSE 流式响应） |
 | WS | `/ws` | — | 文件变更实时推送 |
+| WS | `/ws/chat` | — | CLI 对话 WebSocket |
 
 ## 发布
 
@@ -381,6 +410,8 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 关于作者信息弹窗
 - [x] 会话标签与别名系统 + 跨项目标签筛选
 - [x] 全局搜索会话分组模式 + 应用内使用说明
+- [x] 应用内 CLI 对话 + 快速问答模式
+- [x] CLI 配置自动检测（API Key / Base URL / 默认模型）
 - [ ] 自定义标题栏
 - [ ] 更多 AI CLI 数据源支持（Gemini CLI 等）
 

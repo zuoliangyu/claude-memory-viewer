@@ -1,7 +1,7 @@
 {
   "name": "ai-session-viewer",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "type": "module",
   "scripts": {
     "dev": "node scripts/generate-icons.mjs && vite",
@@ -16,6 +16,7 @@
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/react-virtual": "^3.11.0",
     "@tauri-apps/api": "^2.0.0",
+    "@tauri-apps/plugin-dialog": "^2.6.0",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.0.0",
     "@tauri-apps/plugin-updater": "^2.10.0",
