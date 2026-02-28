@@ -5,8 +5,11 @@ import { useChatStore } from "../../stores/chatStore";
 import { useChatStream } from "../../hooks/useChatStream";
 import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu, AlertCircle } from "lucide-react";
 import { MessageThread } from "./MessageThread";
+import { TimelineDots } from "./TimelineDots";
 import { ChatInput } from "../chat/ChatInput";
 import { StreamingMessage } from "../chat/StreamingMessage";
+import { useActiveUserMessage } from "../../hooks/useActiveUserMessage";
+import { formatTime } from "./utils";
 import { api } from "../../services/api";
 
 declare const __IS_TAURI__: boolean;
@@ -157,6 +160,39 @@ export function MessagesPage() {
   const scrollToTop = () => {
     containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   };
+
+  // Timeline dots: extract user message data
+  const userDots = useMemo(() => {
+    let userIndex = 0;
+    return messages
+      .map((msg, i) => {
+        if (msg.role !== "user") return null;
+        const id = msg.uuid || `user-${i}`;
+        const textContent = msg.content
+          .filter((b): b is { type: "text"; text: string } => b.type === "text")
+          .map((b) => b.text)
+          .join(" ")
+          .trim();
+        const preview = textContent
+          ? textContent.slice(0, 50) + (textContent.length > 50 ? "..." : "")
+          : "（用户消息）";
+        return {
+          id,
+          index: userIndex++,
+          preview,
+          timestamp: msg.timestamp ? formatTime(msg.timestamp) : null,
+        };
+      })
+      .filter(Boolean) as Array<{ id: string; index: number; preview: string; timestamp: string | null }>;
+  }, [messages]);
+
+  const userMessageIds = useMemo(() => userDots.map((d) => d.id), [userDots]);
+  const activeUserMsgId = useActiveUserMessage(containerRef, userMessageIds);
+
+  const handleDotClick = useCallback((id: string) => {
+    const el = containerRef.current?.querySelector(`[data-user-msg-id="${id}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, []);
 
   const [copied, setCopied] = useState(false);
 
@@ -339,6 +375,15 @@ export function MessagesPage() {
             disabled={!chatProjectPath}
           />
         </div>
+      )}
+
+      {/* Timeline navigation dots */}
+      {userDots.length > 1 && (
+        <TimelineDots
+          dots={userDots}
+          activeId={activeUserMsgId}
+          onDotClick={handleDotClick}
+        />
       )}
 
       {/* Scroll buttons */}

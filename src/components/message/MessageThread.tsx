@@ -15,7 +15,12 @@ export function MessageThread({ messages, source, showTimestamp, showModel }: Me
     <div className="max-w-3xl mx-auto py-6 px-6 space-y-6">
       {messages.map((msg, i) => {
         if (msg.role === "user") {
-          return <UserMessage key={msg.uuid || i} message={msg} showTimestamp={showTimestamp} />;
+          const msgId = msg.uuid || `user-${i}`;
+          return (
+            <div key={msgId} data-user-msg-id={msgId}>
+              <UserMessage message={msg} showTimestamp={showTimestamp} />
+            </div>
+          );
         }
         if (msg.role === "tool") {
           return <ToolOutputMessage key={msg.uuid || i} message={msg} showTimestamp={showTimestamp} />;
