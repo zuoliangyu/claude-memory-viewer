@@ -126,7 +126,9 @@ export function SessionsPage() {
   const getResumeCommand = (sessionId: string) =>
     source === "claude"
       ? `claude --resume ${sessionId}`
-      : `codex resume ${sessionId}`;
+      : source === "grok"
+        ? `grok -r ${sessionId}`
+        : `codex resume ${sessionId}`;
 
   const handleCopyCommand = async (e: React.MouseEvent, sessionId: string) => {
     e.preventDefault();

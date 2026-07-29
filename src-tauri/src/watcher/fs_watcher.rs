@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 use session_core::parser::path_encoder::get_projects_dir;
-use session_core::provider::{claude, codex};
+use session_core::provider::{claude, codex, grok};
 
 /// Minimum interval between emitting fs-change events to the frontend.
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(300);
@@ -16,10 +16,12 @@ const DEBOUNCE_DURATION: Duration = Duration::from_millis(300);
 pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
     let claude_dir = get_projects_dir();
     let codex_dir = codex::get_sessions_dir();
+    let grok_dir = grok::get_sessions_dir();
 
     // At least one directory must exist
     if claude_dir.as_ref().map(|d| d.exists()).unwrap_or(false)
         || codex_dir.as_ref().map(|d| d.exists()).unwrap_or(false)
+        || grok_dir.as_ref().map(|d| d.exists()).unwrap_or(false)
     {
         // ok, proceed
     } else {
@@ -54,6 +56,9 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                 }
             }
         }
+        if let Some(ref dir) = grok_dir {
+            if dir.exists() { let _ = watcher.watch(dir, RecursiveMode::Recursive); }
+        }
 
         let mut last_emit = Instant::now() - DEBOUNCE_DURATION;
 
@@ -78,6 +83,7 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                         let is_codex_change = codex_dir.as_ref().map(|dir| {
                             event.paths.iter().any(|path| path.starts_with(dir))
                         }).unwrap_or(false);
+                        let is_grok_change = grok_dir.as_ref().map(|dir| event.paths.iter().any(|path| path.starts_with(dir))).unwrap_or(false);
 
                         // Hand each provider only the paths under its own
                         // directory, so it can surgically update just the
@@ -108,6 +114,7 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                                 }
                             }
                         }
+                        if is_grok_change { grok::invalidate_sessions_cache(); }
 
                         let paths: Vec<String> = event
                             .paths

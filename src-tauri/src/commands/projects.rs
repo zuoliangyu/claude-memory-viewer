@@ -1,5 +1,5 @@
 use session_core::models::project::ProjectEntry;
-use session_core::provider::{claude, codex};
+use session_core::provider::{claude, codex, grok};
 use session_core::provider::claude::{DeleteLevel, DeleteResult};
 
 #[tauri::command]
@@ -7,6 +7,7 @@ pub fn get_projects(source: String) -> Result<Vec<ProjectEntry>, String> {
     match source.as_str() {
         "claude" => claude::get_projects(),
         "codex" => codex::get_projects(),
+        "grok" => grok::get_projects(),
         _ => Err(format!("Unknown source: {}", source)),
     }
 }
@@ -16,6 +17,7 @@ pub fn refresh_projects_cache(source: String) -> Result<Vec<ProjectEntry>, Strin
     match source.as_str() {
         "claude" => claude::refresh_projects_cache(),
         "codex" => codex::get_projects(),
+        "grok" => grok::get_projects(),
         _ => Err(format!("Unknown source: {}", source)),
     }
 }
@@ -25,6 +27,7 @@ pub fn rebuild_projects_cache(source: String) -> Result<Vec<ProjectEntry>, Strin
     match source.as_str() {
         "claude" => claude::refresh_projects_cache(),
         "codex" => codex::rebuild_projects_cache(),
+        "grok" => grok::rebuild_projects_cache(),
         _ => Err(format!("Unknown source: {}", source)),
     }
 }

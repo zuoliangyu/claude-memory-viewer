@@ -4,7 +4,7 @@ use axum::response::Json;
 use serde::Deserialize;
 use session_core::metadata;
 use session_core::models::session::SessionIndexEntry;
-use session_core::provider::{claude, codex};
+use session_core::provider::{claude, codex, grok};
 
 use crate::{resolve_claude_project_dir, resolve_session_file_path, SessionSource};
 
@@ -54,6 +54,7 @@ pub async fn get_sessions(
         let mut sessions = match source.as_str() {
             "claude" => claude::get_sessions(&project_id)?,
             "codex" => codex::get_sessions(&project_id)?,
+            "grok" => grok::get_sessions(&project_id)?,
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
@@ -85,6 +86,7 @@ pub async fn get_invalid_sessions(
         let mut sessions = match source.as_str() {
             "claude" => claude::get_invalid_sessions(&project_id)?,
             "codex" => codex::get_invalid_sessions(&project_id)?,
+            "grok" => grok::get_invalid_sessions(&project_id)?,
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
@@ -137,6 +139,7 @@ pub async fn delete_session(
             match source_kind {
                 SessionSource::Claude => claude::invalidate_cache(),
                 SessionSource::Codex => codex::invalidate_sessions_cache(),
+                SessionSource::Grok => grok::invalidate_sessions_cache(),
             }
             return Ok(Json(()));
         }
@@ -203,6 +206,7 @@ pub async fn delete_session(
                 }
             }
         }
+        SessionSource::Grok => return Err((StatusCode::BAD_REQUEST, "Deleting Grok sessions is not supported".to_string())),
     }
 
     tokio::task::spawn_blocking(move || {

@@ -3,7 +3,7 @@ use axum::response::Json;
 use axum::http::StatusCode;
 use serde::Deserialize;
 use session_core::models::project::ProjectEntry;
-use session_core::provider::{claude, codex};
+use session_core::provider::{claude, codex, grok};
 use session_core::provider::claude::{DeleteLevel, DeleteResult};
 
 #[derive(Deserialize)]
@@ -21,8 +21,10 @@ pub async fn get_projects(
     let result = tokio::task::spawn_blocking(move || match (source.as_str(), rebuild) {
         ("claude", true) => claude::refresh_projects_cache(),
         ("codex", true) => codex::rebuild_projects_cache(),
+        ("grok", true) => grok::rebuild_projects_cache(),
         ("claude", false) => claude::get_projects(),
         ("codex", false) => codex::get_projects(),
+        ("grok", false) => grok::get_projects(),
         _ => Err(format!("Unknown source: {}", source)),
     })
     .await

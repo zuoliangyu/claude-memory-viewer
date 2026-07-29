@@ -2,7 +2,7 @@ use session_core::metadata;
 use session_core::metadata::validate_session_id;
 use session_core::models::session::SessionIndexEntry;
 use session_core::paths::validate_session_file;
-use session_core::provider::{claude, codex};
+use session_core::provider::{claude, codex, grok};
 use session_core::recyclebin;
 
 fn merge_session_metadata(source: &str, project_id: &str, sessions: &mut [SessionIndexEntry]) {
@@ -28,6 +28,7 @@ pub fn get_sessions(source: String, project_id: String) -> Result<Vec<SessionInd
     let mut sessions = match source.as_str() {
         "claude" => claude::get_sessions(&project_id)?,
         "codex" => codex::get_sessions(&project_id)?,
+        "grok" => grok::get_sessions(&project_id)?,
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
@@ -44,6 +45,7 @@ pub fn refresh_sessions_cache(
     let mut sessions = match source.as_str() {
         "claude" => claude::refresh_sessions_cache(&project_id)?,
         "codex" => codex::refresh_sessions_cache(&project_id)?,
+        "grok" => grok::refresh_sessions_cache(&project_id)?,
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
@@ -60,6 +62,7 @@ pub fn get_invalid_sessions(
     let mut sessions = match source.as_str() {
         "claude" => claude::get_invalid_sessions(&project_id)?,
         "codex" => codex::get_invalid_sessions(&project_id)?,
+        "grok" => grok::get_invalid_sessions(&project_id)?,
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
@@ -113,6 +116,8 @@ pub fn delete_session(
         claude::invalidate_cache();
     } else if source == "codex" {
         codex::invalidate_sessions_cache();
+    } else if source == "grok" {
+        grok::invalidate_sessions_cache();
     }
 
     Ok(())
@@ -147,7 +152,7 @@ pub fn update_session_meta(
         result
     } else {
         let result = metadata::update_session_meta(&source, &project_id, &session_id, alias, tags);
-        codex::invalidate_sessions_cache();
+        if source == "codex" { codex::invalidate_sessions_cache(); } else if source == "grok" { grok::invalidate_sessions_cache(); }
         result
     }
 }
@@ -164,6 +169,8 @@ pub fn rename_chat_session(
         claude::invalidate_cache();
     } else if source == "codex" {
         codex::invalidate_sessions_cache();
+    } else if source == "grok" {
+        grok::invalidate_sessions_cache();
     }
     Ok(())
 }

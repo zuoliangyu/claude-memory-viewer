@@ -49,6 +49,7 @@ pub fn resume_session(
     let cli_cmd = match source.as_str() {
         "claude" => format!("claude --resume {}", session_id),
         "codex" => format!("codex resume {}", session_id),
+        "grok" => format!("grok -r {}", session_id),
         _ => return Err(format!("Unknown source: {}", source)),
     };
 

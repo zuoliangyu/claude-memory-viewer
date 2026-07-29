@@ -71,6 +71,7 @@ impl WsTicketStore {
 pub(crate) enum SessionSource {
     Claude,
     Codex,
+    Grok,
 }
 
 impl SessionSource {
@@ -78,6 +79,7 @@ impl SessionSource {
         match source {
             "claude" => Ok(Self::Claude),
             "codex" => Ok(Self::Codex),
+            "grok" => Ok(Self::Grok),
             _ => Err(format!("Unknown source: {}", source)),
         }
     }

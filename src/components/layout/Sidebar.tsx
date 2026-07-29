@@ -109,7 +109,7 @@ export function Sidebar() {
     location.pathname === "/direct-chat" ||
     location.pathname.startsWith(`/projects/${encodeURIComponent("<codex-direct>/")}`);
 
-  const handleSourceChange = (s: "claude" | "codex") => {
+  const handleSourceChange = (s: "claude" | "codex" | "grok") => {
     if (s !== source) {
       setSource(s);
       navigate("/projects");
@@ -146,6 +146,15 @@ export function Sidebar() {
           >
             <Terminal className="w-3.5 h-3.5" />
             Codex
+          </button>
+          <button
+            onClick={() => handleSourceChange("grok")}
+            className={cn(
+              "flex-1 px-3 py-2 text-sm font-medium transition-colors",
+              source === "grok" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Grok
           </button>
         </div>
       </div>

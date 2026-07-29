@@ -25,7 +25,7 @@ import { useReplyNotification } from "../../hooks/useReplyNotification";
 import { SessionCostBadge } from "./SessionCostBadge";
 
 declare const __IS_TAURI__: boolean;
-type MessageSource = "claude" | "codex";
+type MessageSource = "claude" | "codex" | "grok";
 type SplitDirection = "horizontal" | "vertical";
 
 const SPLIT_PANE_MESSAGES_PAGE_SIZE = 50;
@@ -1930,7 +1930,7 @@ const ChatMessagesBlock = memo(function ChatMessagesBlock({
 ));
 
 function assistantNameFromSource(source: MessageSource) {
-  return source === "codex" ? "Codex" : "Claude";
+  return source === "codex" ? "Codex" : source === "grok" ? "Grok" : "Claude";
 }
 
 function extractUserQuestionPreview(message: DisplayMessage) {

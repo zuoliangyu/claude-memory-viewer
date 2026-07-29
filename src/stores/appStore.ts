@@ -36,8 +36,8 @@ const projectsInFlight = new Map<string, Promise<void>>();
 
 interface AppState {
   // Source
-  source: "claude" | "codex";
-  setSource: (s: "claude" | "codex") => void;
+  source: "claude" | "codex" | "grok";
+  setSource: (s: "claude" | "codex" | "grok") => void;
 
   // Display settings
   showTimestamp: boolean;
