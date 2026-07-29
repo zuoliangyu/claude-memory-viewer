@@ -53,14 +53,15 @@ Cargo Workspace 包含三个 crate：
 - Web 模式：`webApi.ts`（HTTP fetch + WebSocket）
 - 统一入口：`api.ts`（动态 import）
 
-### 双数据源模式
+### 三数据源模式
 
-所有 API 接收 `source` 参数（"Codex" | "codex"），调度到对应 `provider/`：
+会话 API 接收 `source` 参数（`"claude" | "codex" | "grok"`），调度到对应 `provider/`：
 
-- `provider/Codex.rs` — 读取 `~/.Codex/projects/{encoded-path}/`（sessions-index.json + *.jsonl）
+- `provider/claude.rs` — 读取 `~/.claude/projects/{encoded-path}/`（sessions-index.json + *.jsonl）
 - `provider/codex.rs` — 读取 `~/.codex/sessions/{year}/{month}/{day}/rollout-*.jsonl`
+- `provider/grok.rs` — 读取 `$GROK_HOME/sessions/` 或 `~/.grok/sessions/` 下的 `summary.json` + `chat_history.jsonl`
 
-两个 provider 解析为共享的 `models/` 类型（`ProjectEntry`、`SessionIndexEntry`、`DisplayMessage`）。
+三个 provider 解析为共享的 `models/` 类型（`ProjectEntry`、`SessionIndexEntry`、`DisplayMessage`）。Grok 仅接入本地会话浏览、搜索、导出、删除/回收站、恢复和文件监听；CLI 对话、Token 统计与 Provider 同步仍只支持原有数据源。
 
 ### 前端 → 后端通信
 

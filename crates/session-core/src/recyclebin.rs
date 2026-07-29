@@ -187,6 +187,7 @@ pub fn restore_item(id: &str) -> Result<(), String> {
     match item.source.as_str() {
         "claude" => crate::provider::claude::invalidate_cache(),
         "codex" => crate::provider::codex::invalidate_sessions_cache(),
+        "grok" => crate::provider::grok::invalidate_sessions_cache(),
         _ => {}
     }
 

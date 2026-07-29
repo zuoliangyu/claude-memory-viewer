@@ -56,6 +56,7 @@ pub async fn delete_project(
     let res = tokio::task::spawn_blocking(move || match source.as_str() {
         "claude" => claude::delete_project(&project_id, level),
         "codex" => codex::delete_project(&project_id),
+        "grok" => grok::delete_project(&project_id),
         _ => Err(format!("Delete project not supported for source: {}", source)),
     })
     .await

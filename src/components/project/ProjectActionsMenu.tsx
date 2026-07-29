@@ -92,7 +92,7 @@ export function ProjectActionsMenu({
         </button>
       )}
 
-      {/* 删除会话数据（claude / codex 均支持） */}
+      {/* 所有本地会话源均支持删除会话数据 */}
       <button
         onClick={() => { onDelete(project); onClose(); }}
         className="w-full text-left px-3 py-2 text-sm text-destructive hover:bg-destructive/10 transition-colors flex items-center gap-2"

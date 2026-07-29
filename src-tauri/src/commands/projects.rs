@@ -41,6 +41,7 @@ pub fn delete_project(
     match source.as_str() {
         "claude" => claude::delete_project(&project_id, level),
         "codex" => codex::delete_project(&project_id),
+        "grok" => grok::delete_project(&project_id),
         _ => Err(format!("Delete project not supported for source: {}", source)),
     }
 }

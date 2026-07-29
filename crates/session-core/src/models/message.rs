@@ -77,7 +77,7 @@ pub struct DisplayMessage {
     pub content: Vec<DisplayContentBlock>,
 }
 
-/// Unified content block enum covering both Claude and Codex types
+/// Unified content block enum covering Claude, Codex, and Grok types
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum DisplayContentBlock {

@@ -206,12 +206,45 @@ pub async fn delete_session(
                 }
             }
         }
-        SessionSource::Grok => return Err((StatusCode::BAD_REQUEST, "Deleting Grok sessions is not supported".to_string())),
+        SessionSource::Grok => {
+            let session_meta = grok::extract_session_meta(&resolved_path).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Failed to read Grok session metadata".to_string(),
+                )
+            })?;
+
+            if let Some(ref pid) = project_id {
+                if session_meta.cwd.as_deref().unwrap_or("<grok-unrooted>") != pid {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "Session file does not belong to the requested Grok project".to_string(),
+                    ));
+                }
+            }
+
+            if let Some(ref sid) = session_id {
+                if session_meta.id != *sid {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "Session id does not match the requested Grok session file".to_string(),
+                    ));
+                }
+            }
+        }
     }
 
     tokio::task::spawn_blocking(move || {
-        std::fs::remove_file(&resolved_path)
-            .map_err(|e| format!("Failed to delete session: {}", e))?;
+        if source == "grok" {
+            let session_dir = resolved_path
+                .parent()
+                .ok_or_else(|| "Invalid Grok session path".to_string())?;
+            std::fs::remove_dir_all(session_dir)
+                .map_err(|e| format!("Failed to delete Grok session: {}", e))?;
+        } else {
+            std::fs::remove_file(&resolved_path)
+                .map_err(|e| format!("Failed to delete session: {}", e))?;
+        }
 
         // Clean up metadata if identifiers provided
         if let (Some(pid), Some(sid)) = (project_id, session_id) {

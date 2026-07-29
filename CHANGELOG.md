@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- 新增 Grok CLI 本地会话支持：读取 `$GROK_HOME/sessions/` 或 `~/.grok/sessions/` 下的 `summary.json` 与 `chat_history.jsonl`，支持项目/会话浏览、分页消息、全文搜索、导出、标签与别名、恢复、文件监听、单会话及项目删除和桌面端回收站恢复。
+
+### Fixed
+
+- Grok 与 Claude/Codex 统一走既有会话生命周期；排除系统提示和合成提醒，并隔离尚未支持 Grok 的 CLI 对话、Token 统计及 Provider 同步入口。
+
+---
+
 ## [2.16.3] - 2026-07-11
 
 ### Added

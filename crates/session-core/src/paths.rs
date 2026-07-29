@@ -5,7 +5,7 @@
 //! The validation rejects:
 //!   - non-existent or non-`.jsonl` paths
 //!   - paths outside the source's allowed root
-//!     (`~/.claude/projects/` or `~/.codex/sessions/`)
+//!     (`~/.claude/projects/`, `~/.codex/sessions/`, or `~/.grok/sessions/`)
 //!   - paths with the wrong layout (e.g. a Codex rollout file not under
 //!     `<year>/<month>/<day>/`)
 //!
@@ -18,8 +18,7 @@ use crate::parser::path_encoder::get_projects_dir;
 use crate::provider::codex;
 use crate::provider::grok;
 
-/// One of the two supported session sources. Mirrors the string `"claude"` /
-/// `"codex"` carried over the wire.
+/// A supported session source carried over the wire.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SessionSourceKind {
     Claude,
@@ -61,7 +60,8 @@ fn canonical_codex_root() -> Result<PathBuf, String> {
 }
 
 fn canonical_grok_root() -> Result<PathBuf, String> {
-    let path = grok::get_sessions_dir().ok_or_else(|| "Could not find Grok sessions directory".to_string())?;
+    let path = grok::get_sessions_dir()
+        .ok_or_else(|| "Could not find Grok sessions directory".to_string())?;
     canonicalize_dir(path, "Grok sessions directory")
 }
 
@@ -100,9 +100,21 @@ fn validate_codex_layout(path: &Path, base: &Path) -> Result<(), String> {
 }
 
 fn validate_grok_layout(path: &Path, base: &Path) -> Result<(), String> {
-    let relative = path.strip_prefix(base).map_err(|_| "Session file is outside the Grok sessions directory".to_string())?;
+    let relative = path
+        .strip_prefix(base)
+        .map_err(|_| "Session file is outside the Grok sessions directory".to_string())?;
     let components: Vec<_> = relative.components().collect();
-    if components.len() != 3 || components.iter().any(|component| !matches!(component, Component::Normal(_))) || path.file_name().and_then(|name| name.to_str()) != Some("updates.jsonl") { return Err("Grok session file must be sessions/<encoded-cwd>/<session-id>/updates.jsonl".to_string()); }
+    if components.len() != 3
+        || components
+            .iter()
+            .any(|component| !matches!(component, Component::Normal(_)))
+        || path.file_name().and_then(|name| name.to_str()) != Some("chat_history.jsonl")
+    {
+        return Err(
+            "Grok session file must be sessions/<encoded-cwd>/<session-id>/chat_history.jsonl"
+                .to_string(),
+        );
+    }
     Ok(())
 }
 

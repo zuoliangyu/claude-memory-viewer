@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Claude Code & Codex CLI 本地会话记忆的统一可视化浏览器</strong>
+  <strong>Claude Code、Codex CLI 与 Grok CLI 本地会话的统一可视化浏览器</strong>
 </p>
 
 <p align="center">
@@ -22,9 +22,9 @@
 
 ---
 
-**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索、统计来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 和 [OpenAI Codex CLI](https://github.com/openai/codex) 的所有本地会话记忆，并支持一键恢复（Resume）到对应 CLI 中继续对话。
+**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenAI Codex CLI](https://github.com/openai/codex) 和 Grok CLI 的本地会话，并支持一键恢复（Resume）到对应 CLI 中继续对话。
 
-本应用**只读取本地文件**，不联网、不上传任何数据。
+本应用**仅处理本地会话文件**，不上传任何数据；删除、标签、别名等写操作只在用户主动触发时执行。
 
 > **What's New（v2.16.3）**：修复应用关闭期间新增、修改或删除的 Codex rollout 未同步到项目列表的问题；缓存现在会在启动时自动对账，并在「所有项目」页提供“刷新缓存”按钮，可随时手动完整重建项目索引。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 >
@@ -59,9 +59,9 @@
 | macOS (Universal) | `.dmg`（同时支持 Intel 和 Apple Silicon） |
 | Linux | `.deb` / `.AppImage` |
 
-安装后打开即可使用，应用会自动扫描本地的 Claude / Codex 会话数据。
+安装后打开即可使用，应用会自动扫描本地的 Claude / Codex / Grok 会话数据。
 
-> 前提：至少使用过 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 或 [Codex CLI](https://github.com/openai/codex)，对应的 `~/.claude/projects/` 或 `~/.codex/sessions/` 目录存在。
+> 前提：至少使用过一种受支持 CLI，对应的 `~/.claude/projects/`、`~/.codex/sessions/` 或 `$GROK_HOME/sessions/`（默认 `~/.grok/sessions/`）目录存在。
 
 ### Web 服务器
 
@@ -114,7 +114,7 @@ environment:
 
 > ⚠️ **安全警告**
 >
-> 应用会读取服务器上的 `~/.claude/projects/` 和 `~/.codex/sessions/`，包含**完整会话记录（含 API Key、代码、隐私对话）**。务必按部署场景采取措施：
+> 应用会读取服务器上的 `~/.claude/projects/`、`~/.codex/sessions/` 和 `~/.grok/sessions/`，包含**完整会话记录（可能含 API Key、代码、隐私对话）**。务必按部署场景采取措施：
 >
 > | 场景 | 建议措施 |
 > |------|---------|
@@ -137,20 +137,21 @@ environment:
 
 ## 功能特性
 
-### 双数据源
+### 三数据源
 
-侧边栏顶部 Tab 一键切换 Claude / Codex，切换时自动清理状态并重新加载，互不干扰。
+侧边栏顶部 Tab 一键切换 Claude / Codex / Grok，切换时自动清理状态并重新加载，互不干扰。
 
 | 数据源 | CLI 工具 | 本地数据 | 特色内容块 |
 |--------|---------|---------|-----------|
 | **Claude**（橙色主题） | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/projects/` | Thinking、工具调用 |
 | **Codex**（绿色主题） | [Codex CLI](https://github.com/openai/codex) | `~/.codex/sessions/` | Reasoning、函数调用 |
+| **Grok**（紫色主题） | Grok CLI | `$GROK_HOME/sessions/` 或 `~/.grok/sessions/` | Reasoning、文本消息 |
 
 ### 项目浏览
 
 启动即扫描数据源目录，秒开列出所有项目，按最近活跃时间排序，显示每个项目的会话数和最后活跃时间。
 
-- **工程操作菜单**（卡片 / 侧边栏行悬停出现的 `⋯`）：复制工程路径（所有数据源）；删除会话数据 **Claude / Codex 均支持**（Codex 含按日期合成的虚拟项目）；设置别名、删除会话数据和源代码仍为 Claude 专属
+- **工程操作菜单**（卡片 / 侧边栏行悬停出现的 `⋯`）：复制工程路径、删除会话数据支持所有数据源（Codex 含按日期合成的虚拟项目）；设置工程别名和删除源代码仍为 Claude 专属
 - **批量删除项目**：列表右上角「选择」进入多选模式，勾选多个工程后底部操作条一键删除（移入回收站可还原），Claude 可选「同时清理 CC 配置」
 - **工程别名**：设置自定义显示名，不改磁盘目录，删除工程时随目录自动清理
 - **删除源代码保护**：可选连同本地源代码目录一起删，删前自动检查 Git 状态（未提交 / 未推送）并要求输入项目名确认
@@ -164,6 +165,7 @@ environment:
 
 - Claude：Ctrl+C 退出的会话也不会丢失
 - Codex：自动过滤非交互式会话（SubAgent、Exec 等内部会话）
+- Grok：读取 `summary.json` 与 `chat_history.jsonl`，自动忽略系统提示和合成提醒
 - 支持删除会话（带确认弹窗）
 - **会话导出**：单个会话悬停「导出」按钮，选 JSON / Markdown / HTML 任一格式保存；桌面端走系统保存框，Web 端浏览器下载
 - **批量选择**：右上角「选择」进入多选模式，可一次**批量导出**（每会话一个文件）或**批量删除**（移入回收站可还原）多个会话
@@ -180,13 +182,13 @@ environment:
 
 ### 消息详情
 
-完整渲染会话所有消息，支持两种 AI 的内容块格式：
+完整渲染会话所有消息，支持三种 AI 的内容块格式：
 
-| 内容块 | Claude | Codex | 渲染 |
-|-------|--------|-------|------|
-| 文本 | ✅ | ✅ | Markdown + 语法高亮 |
-| 思考 / 推理过程 | ✅ Thinking | ✅ Reasoning | 可折叠 |
-| 工具 / 函数调用 | ✅ | ✅ | 名称、参数、返回结果 |
+| 内容块 | Claude | Codex | Grok | 渲染 |
+|-------|--------|-------|------|------|
+| 文本 | ✅ | ✅ | ✅ | Markdown + 语法高亮 |
+| 思考 / 推理过程 | ✅ Thinking | ✅ Reasoning | ✅ Reasoning | 可折叠 |
+| 工具 / 函数调用 | ✅ | ✅ | — | 名称、参数、返回结果 |
 
 - 大会话（上千条消息）分页加载不卡顿，默认从最新消息开始
 - 向上滚动自动加载更早消息并保持滚动位置；首屏不足一屏时自动补页
@@ -196,7 +198,7 @@ environment:
 
 ### 恢复会话
 
-选中会话一键在系统终端恢复（Claude → `claude --resume {id}`，Codex → `codex resume {id}`）。终端独立于本应用，关闭 Viewer 后继续运行。Windows / macOS / Linux 均支持，自动适配各平台终端。
+选中会话一键在系统终端恢复（Claude → `claude --resume {id}`，Codex → `codex resume {id}`，Grok → `grok -r {id}`）。终端独立于本应用，关闭 Viewer 后继续运行。Windows / macOS / Linux 均支持，自动适配各平台终端。
 
 ### 会话分叉（Fork）
 
@@ -221,6 +223,8 @@ environment:
 - 关键词高亮、按标签筛选、悬停一键复制会话名
 
 ### Token 统计与花费分析
+
+> 当前仅支持 Claude 与 Codex；Grok 本地历史不包含统一的 Token/花费字段，因此切换到 Grok 时隐藏此入口。
 
 汇总会话总数、消息总数、Input / Output / Cache 读写 Token 用量、**累计 USD 花费**与**缓存命中率**，提供每日（或按小时）用量柱状图、花费趋势、缓存命中率走势、项目花费排行、按模型分组消耗。
 
@@ -459,7 +463,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 
 ## 路线图
 
-- [x] 双数据源支持（Claude Code + Codex CLI）
+- [x] 三数据源支持（Claude Code + Codex CLI + Grok CLI）
 - [x] 消息详情渲染（Markdown / 代码高亮 / 工具调用 / 思考过程）
 - [x] Resume 会话（跨平台终端启动）
 - [x] 全局搜索 + Token 统计面板

@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::metadata;
 use crate::models::message::{DisplayContentBlock, DisplayMessage};
 use crate::parser::jsonl as claude_parser;
-use crate::provider::{claude, codex};
+use crate::provider::{claude, codex, grok};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchScope {
@@ -357,6 +357,7 @@ pub fn global_search(
     let results: Vec<SearchResult> = match source {
         "claude" => search_claude(&query_lower, max_results, scope),
         "codex" => search_codex(&query_lower, max_results, scope),
+        "grok" => search_grok(&query_lower, max_results, scope),
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
@@ -543,6 +544,71 @@ fn search_codex(query_lower: &str, max_results: usize, scope: SearchScope) -> Ve
             }
 
             Vec::new()
+        })
+        .collect();
+
+    let mut results = results;
+    results.truncate(max_results);
+    results
+}
+
+fn search_grok(query_lower: &str, max_results: usize, scope: SearchScope) -> Vec<SearchResult> {
+    if max_results == 0 {
+        return Vec::new();
+    }
+
+    let mut sessions = Vec::new();
+    for project in grok::get_projects().unwrap_or_default() {
+        let meta = metadata::load_metadata("grok", &project.id);
+        for session in grok::get_sessions(&project.id).unwrap_or_default() {
+            let session_meta = meta.sessions.get(&session.session_id);
+            sessions.push((
+                project.id.clone(),
+                project.short_name.clone(),
+                session,
+                session_meta.and_then(|item| item.alias.clone()),
+                session_meta
+                    .map(|item| item.tags.clone())
+                    .filter(|tags| !tags.is_empty()),
+            ));
+        }
+    }
+
+    let result_count = AtomicUsize::new(0);
+    let results: Vec<SearchResult> = sessions
+        .par_iter()
+        .flat_map(|(project_id, project_name, session, alias, tags)| {
+            if result_count.load(Ordering::Relaxed) >= max_results {
+                return Vec::new();
+            }
+
+            let Ok(messages) = grok::parse_all_messages(std::path::Path::new(&session.file_path))
+            else {
+                return Vec::new();
+            };
+            let mut search_aliases = Vec::with_capacity(2);
+            push_search_alias(&mut search_aliases, session.thread_name.clone());
+            push_search_alias(&mut search_aliases, alias.clone());
+            let ctx = SearchSessionContext {
+                source: "grok".to_string(),
+                project_id: project_id.clone(),
+                project_name: project_name.clone(),
+                session_id: session.session_id.clone(),
+                thread_name: session.thread_name.clone(),
+                alias: alias.clone(),
+                search_aliases,
+                tags: tags.clone(),
+                file_path: session.file_path.clone(),
+            };
+
+            search_messages_for_session(
+                &ctx,
+                &messages,
+                query_lower,
+                scope,
+                &result_count,
+                max_results,
+            )
         })
         .collect();
 

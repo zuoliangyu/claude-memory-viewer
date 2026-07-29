@@ -149,11 +149,13 @@ export function Sidebar() {
           </button>
           <button
             onClick={() => handleSourceChange("grok")}
-            className={cn(
-              "flex-1 px-3 py-2 text-sm font-medium transition-colors",
-              source === "grok" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-            )}
+            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              source === "grok"
+                ? "bg-purple-500/20 text-purple-400 shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
           >
+            <Sparkles className="w-3.5 h-3.5" />
             Grok
           </button>
         </div>
@@ -163,20 +165,22 @@ export function Sidebar() {
       <nav className="flex-1 overflow-y-auto p-2">
         {/* Quick links */}
         <div className="mb-4">
-          <button
-            onClick={() => {
-              clearChat();
-              navigate("/chat");
-            }}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
-              location.pathname.startsWith("/chat")
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            }`}
-          >
-            <MessageSquarePlus className="w-4 h-4" />
-            CLI 对话
-          </button>
+          {source !== "grok" && (
+            <button
+              onClick={() => {
+                clearChat();
+                navigate("/chat");
+              }}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                location.pathname.startsWith("/chat")
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              }`}
+            >
+              <MessageSquarePlus className="w-4 h-4" />
+              CLI 对话
+            </button>
+          )}
           <button
             onClick={() => navigate("/search")}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
@@ -188,17 +192,19 @@ export function Sidebar() {
             <Search className="w-4 h-4" />
             全局搜索
           </button>
-          <button
-            onClick={() => navigate("/stats")}
-            className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
-              isActive("/stats")
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            }`}
-          >
-            <BarChart3 className="w-4 h-4" />
-            使用统计
-          </button>
+          {source !== "grok" && (
+            <button
+              onClick={() => navigate("/stats")}
+              className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${
+                isActive("/stats")
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              }`}
+            >
+              <BarChart3 className="w-4 h-4" />
+              使用统计
+            </button>
+          )}
           <button
             onClick={() => navigate("/skills")}
             className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${

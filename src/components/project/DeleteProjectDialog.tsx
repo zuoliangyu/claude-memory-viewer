@@ -5,7 +5,7 @@ import type { DeleteLevel } from "../../types";
 
 interface DeleteProjectDialogProps {
   project: ProjectEntry;
-  /** 数据源；非 claude 时隐藏「清理 CC 配置」选项（codex 无此配置）。 */
+  /** 数据源；非 claude 时隐藏「清理 CC 配置」选项。 */
   source?: string;
   onConfirm: (level: DeleteLevel) => Promise<void>;
   onCancel: () => void;

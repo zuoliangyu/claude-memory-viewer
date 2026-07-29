@@ -353,7 +353,9 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
 
   // Sync source from appStore into the target pane
   useEffect(() => {
-    setPaneSource(paneId, appSource);
+    if (appSource !== "grok") {
+      setPaneSource(paneId, appSource);
+    }
   }, [appSource, paneId, setPaneSource]);
 
   // Detect CLI on mount + fetch config & model list
@@ -367,6 +369,7 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
     clearPane(paneId);
   }, [clearPane, paneId, setPaneSessionId, urlSessionId]);
   useEffect(() => {
+    if (appSource === "grok") return;
     if (appSource === "codex") {
       fetchCodexCliConfig();
       return;
@@ -374,7 +377,9 @@ export function ChatPage({ paneId = DEFAULT_CHAT_PANE_ID }: ChatPageProps) {
     fetchCliConfig();
   }, [appSource, fetchCliConfig, fetchCodexCliConfig]);
   // Re-fetch model list whenever source changes (setSource clears modelList first)
-  useEffect(() => { fetchModelList(); }, [appSource, fetchModelList]);
+  useEffect(() => {
+    if (appSource !== "grok") fetchModelList();
+  }, [appSource, fetchModelList]);
 
   // Listen for stream events in the target pane. The hook falls back to the
   // URL session id only until a live turn sets the pane's own streamId.

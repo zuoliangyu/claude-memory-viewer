@@ -88,9 +88,16 @@ pub fn delete_session(
     // to the recycle bin.
     match validate_session_file(&source, &file_path) {
         Ok(path) => {
-            // File is present → move it to the recycle bin (restorable).
+            // Claude/Codex sessions are one JSONL file. Grok keeps a session in
+            // a directory, so recycle the validated file's parent as one unit.
+            let recycle_path = if source == "grok" {
+                path.parent()
+                    .ok_or_else(|| "Invalid Grok session path".to_string())?
+            } else {
+                path.as_path()
+            };
             recyclebin::move_to_recyclebin(
-                &path,
+                recycle_path,
                 "session",
                 "ManualDelete",
                 &source,

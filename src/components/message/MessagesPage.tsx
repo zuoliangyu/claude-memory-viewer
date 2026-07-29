@@ -435,11 +435,11 @@ export function MessagesPage() {
     session?.projectPath ||
     session?.cwd ||
     project?.displayPath ||
-    (source === "codex" ? searchHit?.projectId : "") ||
+    (source !== "claude" ? searchHit?.projectId : "") ||
     "";
 
   usePaneChatStream(mainPaneId, resolvedSessionId);
-  const cliAvailable = availableClis.some((c) => c.cliType === source);
+  const cliAvailable = source !== "grok" && availableClis.some((c) => c.cliType === source);
   const [editingSession, setEditingSession] = useState(false);
 
   // Detect CLI and set chat context on mount
@@ -450,8 +450,10 @@ export function MessagesPage() {
   // Sync source from appStore into chatStore, then refresh model list
   useEffect(() => {
     setActivePane(mainPaneId);
-    setPaneSource(mainPaneId, source);
-    fetchChatModelList(mainPaneId);
+    if (source !== "grok") {
+      setPaneSource(mainPaneId, source);
+      fetchChatModelList(mainPaneId);
+    }
   }, [fetchChatModelList, mainPaneId, setActivePane, setPaneSource, source]);
 
   // Extract the model used in this historical session
@@ -886,7 +888,9 @@ export function MessagesPage() {
     if (!resolvedSessionId) return "";
     return source === "claude"
       ? `claude --resume ${resolvedSessionId}`
-      : `codex resume ${resolvedSessionId}`;
+      : source === "grok"
+        ? `grok -r ${resolvedSessionId}`
+        : `codex resume ${resolvedSessionId}`;
   };
 
   const handleCopyCommand = async (e: React.MouseEvent) => {
@@ -1035,7 +1039,7 @@ export function MessagesPage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {filePath && <SessionCostBadge filePath={filePath} />}
+          {source !== "grok" && filePath && <SessionCostBadge filePath={filePath} />}
           <button
             onClick={toggleTimestamp}
             className={`p-1.5 rounded transition-colors ${
@@ -1661,7 +1665,9 @@ function SplitSessionPane({
   }, [loadMessages]);
 
   useEffect(() => {
-    setPaneSource(paneId, source);
+    if (source !== "grok") {
+      setPaneSource(paneId, source);
+    }
   }, [paneId, setPaneSource, source]);
 
   useEffect(() => {
