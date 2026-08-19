@@ -293,6 +293,7 @@ async fn main() {
             "/api/messages/range",
             get(routes::messages::get_messages_range),
         )
+        .route("/api/trajectory", get(routes::trajectory::get_trajectory))
         .route("/api/export", get(routes::export::export_session))
         .route("/api/scan-progress", get(routes::progress::get_scan_progress))
         .route("/api/search", get(routes::search::global_search))

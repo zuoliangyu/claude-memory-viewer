@@ -4,6 +4,7 @@ import type {
   SessionIndexEntry,
   PaginatedMessages,
   RangeMessages,
+  Trajectory,
   SearchResult,
   TokenUsageSummary,
   RequestLogPage,
@@ -91,6 +92,15 @@ export async function getMessagesRange(
     start,
     end,
   });
+}
+
+export async function getTrajectory(
+  source: string,
+  filePath: string,
+  maxRecords: number = 500,
+  beforeRecord?: number,
+): Promise<Trajectory> {
+  return invoke<Trajectory>("get_trajectory", { source, filePath, maxRecords, beforeRecord });
 }
 
 export async function globalSearch(

@@ -2,7 +2,7 @@ import { memo, useEffect, useMemo, useRef, useCallback, useState } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
-import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu, AlertCircle, Tag, Plus, X, Rows3, ChevronsUpDown, Columns2, Rows2, ListTree, MessageSquare } from "lucide-react";
+import { ArrowLeft, Play, Copy, Loader2, ArrowDown, ArrowUp, Clock, Cpu, AlertCircle, Tag, Plus, X, Rows3, ChevronsUpDown, Columns2, Rows2, ListTree, MessageSquare, Activity } from "lucide-react";
 import { MessageThread } from "./MessageThread";
 import { ThreadSummaryView } from "./ThreadSummaryView";
 import { SelectionReplyButton } from "./SelectionReplyButton";
@@ -23,6 +23,7 @@ import type { ChatMessage } from "../../types/chat";
 import { ExpandAllProvider } from "../common/ExpandAllContext";
 import { useReplyNotification } from "../../hooks/useReplyNotification";
 import { SessionCostBadge } from "./SessionCostBadge";
+import { TrajectoryView } from "./TrajectoryView";
 import { isRemoteNodeActive } from "../../services/nodeConfig";
 
 declare const __IS_TAURI__: boolean;
@@ -395,7 +396,7 @@ export function MessagesPage() {
   const [loadingAll, setLoadingAll] = useState(false);
   const loadAllAbortRef = useRef(false);
   const [splitDirection, setSplitDirection] = useState<SplitDirection>("horizontal");
-  const [viewMode, setViewMode] = useState<"messages" | "thread">("messages");
+  const [viewMode, setViewMode] = useState<"messages" | "thread" | "trajectory">("messages");
   const [tocCollapsed, setTocCollapsed] = useState<boolean>(
     () => localStorage.getItem("messageTocCollapsed") === "true"
   );
@@ -992,7 +993,7 @@ export function MessagesPage() {
   // Percentage-jump controls only make sense for long sessions and the main
   // (non-thread, non-matched-fragment) message view.
   const showJumpControls =
-    viewMode !== "thread" &&
+    viewMode === "messages" &&
     !matchedOnly &&
     splitFilePaths.length === 0 &&
     messagesTotal > JUMP_CONTROLS_MIN_TOTAL;
@@ -1052,6 +1053,20 @@ export function MessagesPage() {
           >
             <Clock className="w-3.5 h-3.5" />
           </button>
+          {source === "codex" && (
+            <button
+              onClick={() => setViewMode((prev) => (prev === "trajectory" ? "messages" : "trajectory"))}
+              className={`px-2 py-1.5 rounded text-xs flex items-center gap-1 transition-colors ${
+                viewMode === "trajectory"
+                  ? "bg-primary/15 text-primary hover:bg-primary/20"
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent"
+              }`}
+              title={viewMode === "trajectory" ? "返回消息视图" : "打开 Codex 轨迹视图"}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              轨迹
+            </button>
+          )}
           <button
             onClick={toggleModel}
             className={`p-1.5 rounded transition-colors ${
@@ -1260,7 +1275,7 @@ export function MessagesPage() {
 
       <ExpandAllProvider value={{ expanded: allExpanded, version: expandVersion }}>
         <div className="flex-1 min-h-0 flex min-w-0">
-          {viewMode !== "thread" && userDots.length > 0 && (
+          {viewMode === "messages" && userDots.length > 0 && (
             <div className="relative z-10 shrink-0 py-3 pl-3 flex items-stretch">
               <MessageTOCSidebar
                 items={userDots}
@@ -1312,7 +1327,7 @@ export function MessagesPage() {
                 onViewportScroll={handleScroll}
                 viewportClassName="h-full"
               >
-                {viewMode !== "thread" && firstUserAnchor && (
+                {viewMode === "messages" && firstUserAnchor && (
                   <button
                     type="button"
                     onClick={() => handleDotClick(firstUserAnchor.id)}
@@ -1334,7 +1349,7 @@ export function MessagesPage() {
                     )}
                   </button>
                 )}
-                {messagesHasMore && messages.length > 0 && !matchedOnly && (
+                {viewMode === "messages" && messagesHasMore && messages.length > 0 && !matchedOnly && (
                   <div className="flex justify-center px-4 pt-4">
                     <button
                       onClick={requestOlderMessages}
@@ -1346,12 +1361,12 @@ export function MessagesPage() {
                     </button>
                   </div>
                 )}
-                {!messagesHasMore && messages.length > 0 && (
+                {viewMode === "messages" && !messagesHasMore && messages.length > 0 && (
                   <div className="text-center py-4 text-xs text-muted-foreground">
                     — 会话开始 —
                   </div>
                 )}
-                {messagesLoading && messages.length === 0 ? (
+                {viewMode === "messages" && messagesLoading && messages.length === 0 ? (
                   <div className="flex items-center justify-center h-32 text-muted-foreground">
                     <Loader2 className="w-5 h-5 animate-spin mr-2" />
                     加载消息中...
@@ -1364,6 +1379,8 @@ export function MessagesPage() {
                     filePath={filePath}
                     projectPath={chatProjectPath}
                   />
+                ) : viewMode === "trajectory" ? (
+                  <TrajectoryView source={source} filePath={filePath} />
                 ) : (
                   <MessageThread
                     messages={displayedMessages}
@@ -1380,19 +1397,19 @@ export function MessagesPage() {
                     priorityMessageId={scrollToMessageId}
                   />
                 )}
-                {!messagesLoading && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (
+                {viewMode === "messages" && !messagesLoading && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (
                   <div className="text-center py-4 text-xs text-muted-foreground">
                     — 会话结束 —
                   </div>
                 )}
 
-                {chatMessages.length > 0 && (
+                {viewMode === "messages" && chatMessages.length > 0 && (
                   <ChatMessagesBlock
                     messages={chatMessages}
                     onSubmitAnswers={handleSubmitAnswers}
                   />
                 )}
-                {chatStreaming && (
+                {viewMode === "messages" && chatStreaming && (
                   <div className="max-w-4xl mx-auto px-6">
                     <div className="flex items-center gap-2 py-2 text-sm text-muted-foreground">
                       <div className="flex gap-1">
@@ -1403,7 +1420,7 @@ export function MessagesPage() {
                     </div>
                   </div>
                 )}
-                {chatError && (
+                {viewMode === "messages" && chatError && (
                   <div className="max-w-4xl mx-auto px-6">
                     <div className="flex items-center gap-2 py-2 text-sm text-red-400">
                       <AlertCircle className="w-4 h-4 shrink-0" />
@@ -1435,7 +1452,7 @@ export function MessagesPage() {
       </ExpandAllProvider>
 
       {/* Chat input */}
-      {resolvedSessionId && cliAvailable && viewMode !== "thread" && (
+      {resolvedSessionId && cliAvailable && viewMode === "messages" && (
         <div className="shrink-0">
           <ChatInput
             ref={chatInputRef}
@@ -1449,7 +1466,7 @@ export function MessagesPage() {
       )}
 
       {/* Floating "Reply" button that appears when the user selects text inside the messages area */}
-      {resolvedSessionId && cliAvailable && viewMode !== "thread" && (
+      {resolvedSessionId && cliAvailable && viewMode === "messages" && (
         <SelectionReplyButton
           scopeRef={containerRef}
           disabled={chatStreaming}
@@ -1467,7 +1484,7 @@ export function MessagesPage() {
       )}
 
       {/* Timeline navigation dots */}
-      {userDots.length > 1 && viewMode !== "thread" && (
+      {userDots.length > 1 && viewMode === "messages" && (
         <TimelineDots
           dots={userDots}
           activeId={activeUserMsgId}
@@ -1478,7 +1495,7 @@ export function MessagesPage() {
 
       {/* Scroll buttons */}
       <div className="absolute bottom-20 right-6 flex flex-col gap-2">
-        {messages.length > 0 && viewMode !== "thread" && (
+        {messages.length > 0 && viewMode === "messages" && (
           <button
             onClick={() => {
               setAllExpandedPersist(!allExpanded);

@@ -22,7 +22,6 @@ Thumbs.db
 .env.*
 
 # Local build scripts (contain signing password)
-dev.ps1
 build.ps1
 dev-web.ps1
 build-web.ps1

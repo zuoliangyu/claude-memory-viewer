@@ -25,9 +25,9 @@ npx tauri build
 # 构建 Web 服务器
 npm run build:web && cargo build -p session-web --release
 
-# 本地开发/构建（带签名，PowerShell 脚本，已 gitignore）
-.\dev.ps1
-.\build.ps1
+# 本地开发/构建（PowerShell）
+.\dev.ps1    # 开发启动，不需要更新签名密钥
+.\build.ps1  # 本地签名构建，已 gitignore
 
 # 代码检查
 cargo clippy --workspace -- -D warnings   # Rust lint（全 workspace）

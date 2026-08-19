@@ -3,6 +3,7 @@ import type {
   SessionIndexEntry,
   PaginatedMessages,
   RangeMessages,
+  Trajectory,
   SearchResult,
   TokenUsageSummary,
   RequestLogPage,
@@ -266,6 +267,20 @@ export async function getMessagesRange(
     filePath,
     start: String(start),
     end: String(end),
+  });
+}
+
+export async function getTrajectory(
+  source: string,
+  filePath: string,
+  maxRecords: number = 500,
+  beforeRecord?: number,
+): Promise<Trajectory> {
+  return apiFetch("/api/trajectory", {
+    source,
+    filePath,
+    maxRecords: String(maxRecords),
+    ...(beforeRecord == null ? {} : { beforeRecord: String(beforeRecord) }),
   });
 }
 

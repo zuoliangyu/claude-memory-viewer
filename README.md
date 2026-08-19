@@ -201,6 +201,7 @@ environment:
 | 工具 / 函数调用 | ✅ | ✅ | — | 名称、参数、返回结果 |
 
 - 大会话（上千条消息）分页加载不卡顿，默认从最新消息开始
+- **Codex 轨迹视图**：在会话详情页查看 Turn / 近似 Step、工具耗时与失败、Reasoning、子 Agent、上下文压缩和逐 Turn Token 拆分；兼容 legacy 与 `history_base` 分段 rollout（[详细说明](TRAJECTORY.md)）
 - 向上滚动自动加载更早消息并保持滚动位置；首屏不足一屏时自动补页
 - 顶部「已加载 N / M 条」进度条，浮动「跳到顶部 / 底部」按钮
 - **跳到百分比**：顶部 `0% / 25% / 50% / 75% / 100%` 预设按钮 + 数字输入框，右侧可拖动竖直滑条——长会话里一键定位到任意进度，只加载目标位置附近的一小段窗口，无需"加载全部"
@@ -452,6 +453,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 | GET | `/api/sessions` | `source, projectId` | 获取会话列表 |
 | DELETE | `/api/sessions` | `filePath` | 删除会话 |
 | GET | `/api/messages` | `source, filePath, page, pageSize, fromEnd` | 分页加载消息 |
+| GET | `/api/trajectory` | `source, filePath, maxRecords?, beforeRecord?` | 加载 Codex Turn / Step 轨迹与事件账本 |
 | GET | `/api/export` | `source, filePath, format` | 导出会话为 JSON / Markdown / HTML |
 | GET | `/api/scan-progress` | — | 冷启动扫描进度 |
 | GET | `/api/skills` | `projectPath?` | 列出全局 / 插件 / 项目级 skills |
@@ -541,4 +543,4 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 
 ## 许可证
 
-[MIT](LICENSE)
+[MIT](LICENSE)。第三方许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

@@ -115,6 +115,102 @@ export interface RangeMessages {
   end: number;
 }
 
+export interface TrajectoryTokenUsage {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+  totalTokens: number;
+}
+
+export interface TrajectorySession {
+  id: string;
+  title: string;
+  cwd: string | null;
+  model: string | null;
+  effort: string | null;
+  originator: string | null;
+  sourceKind: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
+  archived: boolean;
+  parentThreadId: string | null;
+  agentPath: string | null;
+  gitBranch: string | null;
+}
+
+export interface TrajectoryStats {
+  turns: number;
+  records: number;
+  visibleRecords: number;
+  toolCalls: number;
+  failedTools: number;
+  compactions: number;
+  tokens: TrajectoryTokenUsage | null;
+  durationMs: number | null;
+}
+
+export interface TrajectoryTurn {
+  index: number;
+  id: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  timeToFirstTokenMs: number | null;
+  status: "running" | "complete" | "error" | "aborted" | string;
+  error: string | null;
+  records: number;
+  steps: number;
+  modelCalls: number;
+  usage: TrajectoryTokenUsage | null;
+  model: string | null;
+}
+
+export interface TrajectoryRecord {
+  index: number;
+  turn: number;
+  step: number | null;
+  kind: "user" | "assistant" | "reasoning" | "tool" | "subagent" | "compaction" | string;
+  event: string;
+  summary: string;
+  timestamp: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  status: "running" | "complete" | "error" | "aborted" | string;
+  input: string | null;
+  output: string | null;
+  callId: string | null;
+  tokenUsage: TrajectoryTokenUsage | null;
+}
+
+export interface TrajectoryWarning {
+  code: string;
+  line: number;
+  message: string;
+}
+
+export interface TrajectoryPagination {
+  firstRecord: number | null;
+  lastRecord: number | null;
+  earlierRecords: number;
+  laterRecords: number;
+  hasEarlier: boolean;
+  hasLater: boolean;
+  nextBeforeRecord: number | null;
+}
+
+export interface Trajectory {
+  schemaVersion: number;
+  generatedAt: string;
+  session: TrajectorySession;
+  stats: TrajectoryStats;
+  pagination: TrajectoryPagination;
+  turns: TrajectoryTurn[];
+  records: TrajectoryRecord[];
+  warnings: TrajectoryWarning[];
+}
+
 export interface TokenUsageSummary {
   totalInputTokens: number;
   totalOutputTokens: number;

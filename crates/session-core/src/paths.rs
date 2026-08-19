@@ -5,7 +5,8 @@
 //! The validation rejects:
 //!   - non-existent or non-`.jsonl` paths
 //!   - paths outside the source's allowed root
-//!     (`~/.claude/projects/`, `~/.codex/sessions/`, or `~/.grok/sessions/`)
+//!     (`~/.claude/projects/`, `$CODEX_HOME/sessions/` or
+//!     `$CODEX_HOME/archived_sessions/`, or `~/.grok/sessions/`)
 //!   - paths with the wrong layout (e.g. a Codex rollout file not under
 //!     `<year>/<month>/<day>/`)
 //!
@@ -59,6 +60,13 @@ fn canonical_codex_root() -> Result<PathBuf, String> {
     canonicalize_dir(path, "Codex sessions directory")
 }
 
+fn canonical_codex_archived_root() -> Option<PathBuf> {
+    let root = codex::get_sessions_dir()?
+        .parent()?
+        .join("archived_sessions");
+    root.canonicalize().ok().filter(|path| path.is_dir())
+}
+
 fn canonical_grok_root() -> Result<PathBuf, String> {
     let path = grok::get_sessions_dir()
         .ok_or_else(|| "Could not find Grok sessions directory".to_string())?;
@@ -70,24 +78,36 @@ fn validate_claude_layout(path: &Path, base: &Path) -> Result<(), String> {
         .strip_prefix(base)
         .map_err(|_| "Session file is outside the Claude projects directory".to_string())?;
     if relative.components().count() != 2 {
-        return Err(
-            "Claude session file must live directly under a project directory".to_string(),
-        );
+        return Err("Claude session file must live directly under a project directory".to_string());
     }
     Ok(())
 }
 
-fn validate_codex_layout(path: &Path, base: &Path) -> Result<(), String> {
-    let relative = path
-        .strip_prefix(base)
-        .map_err(|_| "Session file is outside the Codex sessions directory".to_string())?;
+fn validate_codex_layout(
+    path: &Path,
+    base: Option<&Path>,
+    archived: Option<&Path>,
+) -> Result<(), String> {
+    let relative = if let Some(relative) = base.and_then(|root| path.strip_prefix(root).ok()) {
+        if relative.components().count() != 4 {
+            return Err(
+                "Codex session file must live under sessions/<year>/<month>/<day>/".to_string(),
+            );
+        }
+        relative
+    } else if let Some(archived_root) = archived {
+        path.strip_prefix(archived_root)
+            .map_err(|_| "Session file is outside the Codex sessions directory".to_string())?
+    } else {
+        return Err("Session file is outside the Codex sessions directory".to_string());
+    };
     let components: Vec<_> = relative.components().collect();
-    if components.len() != 4
-        || components.iter().any(|c| !matches!(c, Component::Normal(_)))
+    if components.is_empty()
+        || components
+            .iter()
+            .any(|c| !matches!(c, Component::Normal(_)))
     {
-        return Err(
-            "Codex session file must live under sessions/<year>/<month>/<day>/".to_string(),
-        );
+        return Err("Codex session file must live under a Codex session root".to_string());
     }
     let file_name = path
         .file_name()
@@ -143,8 +163,12 @@ pub fn validate_session_file(source: &str, file_path: &str) -> Result<PathBuf, S
             validate_claude_layout(&canonical, &base)?;
         }
         SessionSourceKind::Codex => {
-            let base = canonical_codex_root()?;
-            validate_codex_layout(&canonical, &base)?;
+            let base = canonical_codex_root().ok();
+            let archived = canonical_codex_archived_root();
+            if base.is_none() && archived.is_none() {
+                return Err("Could not find Codex sessions directory".to_string());
+            }
+            validate_codex_layout(&canonical, base.as_deref(), archived.as_deref())?;
         }
         SessionSourceKind::Grok => {
             let base = canonical_grok_root()?;

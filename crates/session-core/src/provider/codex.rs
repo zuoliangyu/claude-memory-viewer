@@ -294,7 +294,9 @@ const MAX_ARGS_SIZE: usize = 10_000;
 // ── Directory scanning ──
 
 fn get_codex_home() -> Option<PathBuf> {
-    dirs::home_dir().map(|h| h.join(".codex"))
+    std::env::var_os("CODEX_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|h| h.join(".codex")))
 }
 
 pub fn get_sessions_dir() -> Option<PathBuf> {
