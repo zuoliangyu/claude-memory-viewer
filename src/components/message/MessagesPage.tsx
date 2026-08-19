@@ -1366,11 +1366,8 @@ export function MessagesPage() {
                     — 会话开始 —
                   </div>
                 )}
-                {viewMode === "messages" && messagesLoading && messages.length === 0 ? (
-                  <div className="flex items-center justify-center h-32 text-muted-foreground">
-                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
-                    加载消息中...
-                  </div>
+                {viewMode === "trajectory" ? (
+                  <TrajectoryView source={source} filePath={filePath} />
                 ) : viewMode === "thread" ? (
                   <ThreadSummaryView
                     messages={displayedMessages}
@@ -1379,8 +1376,11 @@ export function MessagesPage() {
                     filePath={filePath}
                     projectPath={chatProjectPath}
                   />
-                ) : viewMode === "trajectory" ? (
-                  <TrajectoryView source={source} filePath={filePath} />
+                ) : messagesLoading && messages.length === 0 ? (
+                  <div className="flex items-center justify-center h-32 text-muted-foreground">
+                    <Loader2 className="w-5 h-5 animate-spin mr-2" />
+                    加载消息中...
+                  </div>
                 ) : (
                   <MessageThread
                     messages={displayedMessages}
