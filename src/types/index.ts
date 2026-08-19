@@ -191,6 +191,7 @@ export interface TrajectoryWarning {
 }
 
 export interface TrajectoryPagination {
+  complete: boolean;
   firstRecord: number | null;
   lastRecord: number | null;
   earlierRecords: number;

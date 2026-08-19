@@ -8,13 +8,18 @@ pub async fn get_trajectory(
     file_path: String,
     max_records: Option<usize>,
     before_record: Option<usize>,
+    fast: Option<bool>,
 ) -> Result<Trajectory, String> {
     if source != "codex" {
         return Err("轨迹视图目前只支持 Codex 数据源".to_string());
     }
     let path = validate_session_file(&source, &file_path)?;
     tauri::async_runtime::spawn_blocking(move || {
-        codex_trajectory::parse_page(&path, max_records, before_record)
+        if fast.unwrap_or(false) {
+            codex_trajectory::parse_fast_page(&path, max_records)
+        } else {
+            codex_trajectory::parse_page(&path, max_records, before_record)
+        }
     })
     .await
     .map_err(|error| format!("轨迹解析任务失败: {error}"))?

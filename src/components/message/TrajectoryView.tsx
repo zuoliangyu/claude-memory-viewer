@@ -60,6 +60,7 @@ function mergeTrajectory(current: Trajectory, earlier: Trajectory): Trajectory {
     warnings,
     stats: { ...current.stats, visibleRecords: records.length },
     pagination: {
+      complete: current.pagination.complete && earlier.pagination.complete,
       firstRecord: records[0]?.index ?? null,
       lastRecord: records[records.length - 1]?.index ?? null,
       earlierRecords: earlier.pagination.earlierRecords,
@@ -454,8 +455,10 @@ function TurnBlock({
 export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
   const [trajectory, setTrajectory] = useState<Trajectory | null>(null);
   const [loading, setLoading] = useState(true);
+  const [enriching, setEnriching] = useState(false);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
   const [pagingError, setPagingError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("all");
@@ -463,22 +466,53 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setEnriching(false);
+    setTrajectory(null);
     setError(null);
+    setEnrichmentError(null);
     setPagingError(null);
     setQuery("");
     setKind("all");
-    api
-      .getTrajectory(source, filePath, TRAJECTORY_PAGE_SIZE)
-      .then((value) => {
-        if (!cancelled) setTrajectory(value);
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled)
+    const load = async () => {
+      try {
+        const fastResult = await api.getTrajectory(
+          source,
+          filePath,
+          TRAJECTORY_PAGE_SIZE,
+          undefined,
+          true,
+        );
+        if (cancelled) return;
+        setTrajectory(fastResult);
+        setLoading(false);
+
+        if (fastResult.pagination.complete) return;
+        setEnriching(true);
+        try {
+          const fullResult = await api.getTrajectory(
+            source,
+            filePath,
+            TRAJECTORY_PAGE_SIZE,
+          );
+          if (!cancelled) setTrajectory(fullResult);
+        } catch (reason: unknown) {
+          if (!cancelled) {
+            setEnrichmentError(
+              reason instanceof Error ? reason.message : String(reason),
+            );
+          }
+        } finally {
+          if (!cancelled) setEnriching(false);
+        }
+      } catch (reason: unknown) {
+        if (!cancelled) {
           setError(reason instanceof Error ? reason.message : String(reason));
-      })
-      .finally(() => {
+        }
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+    void load();
     return () => {
       cancelled = true;
     };
@@ -520,7 +554,12 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
   );
 
   const loadEarlier = async () => {
-    if (!trajectory?.pagination.nextBeforeRecord || loadingEarlier) return;
+    if (
+      !trajectory?.pagination.complete ||
+      !trajectory.pagination.nextBeforeRecord ||
+      loadingEarlier
+    )
+      return;
     setLoadingEarlier(true);
     setPagingError(null);
     try {
@@ -571,8 +610,14 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
             </div>
           </div>
           <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span>{trajectory.stats.turns} turns</span>
-            <span>{trajectory.stats.records} records</span>
+            <span>
+              {trajectory.stats.turns} turns
+              {!trajectory.pagination.complete && "（当前片段）"}
+            </span>
+            <span>
+              {trajectory.stats.records} records
+              {!trajectory.pagination.complete && "（当前片段）"}
+            </span>
             <span>
               <Wrench className="mr-1 inline h-3 w-3" />
               {trajectory.stats.toolCalls} 工具
@@ -580,6 +625,29 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
             <span>{formatDuration(trajectory.stats.durationMs)}</span>
           </div>
         </div>
+        {(enriching || enrichmentError) && (
+          <div
+            className={`flex items-center gap-2 rounded-md border px-3 py-2 text-xs ${
+              enrichmentError
+                ? "border-yellow-500/40 bg-yellow-500/5 text-yellow-600 dark:text-yellow-400"
+                : "border-border bg-muted/30 text-muted-foreground"
+            }`}
+          >
+            {enriching ? (
+              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+            ) : (
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span
+              className="min-w-0 truncate"
+              title={enrichmentError ?? undefined}
+            >
+              {enrichmentError
+                ? "全量轨迹补全失败，当前显示最近片段"
+                : "正在后台补全全局统计与早期轨迹..."}
+            </span>
+          </div>
+        )}
         <section className="rounded-lg border border-border bg-card p-3">
           <TokenStrip usage={trajectory.stats.tokens} />
         </section>
@@ -607,8 +675,9 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
                 事件账本
               </span>
               <span className="text-xs text-muted-foreground">
-                已加载 {trajectory.records.length} / {trajectory.stats.records}{" "}
-                条
+                {trajectory.pagination.complete
+                  ? `已加载 ${trajectory.records.length} / ${trajectory.stats.records} 条`
+                  : `当前片段 ${trajectory.records.length} 条`}
               </span>
             </div>
             <div className="mt-2 flex flex-col gap-2 sm:flex-row">
@@ -635,29 +704,31 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
                 ))}
               </select>
             </div>
-            {trajectory.pagination.hasEarlier && (
-              <div className="mt-2 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={loadEarlier}
-                  disabled={loadingEarlier}
-                  className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loadingEarlier && (
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  )}
-                  加载更早记录（剩余 {trajectory.pagination.earlierRecords} 条）
-                </button>
-                {pagingError && (
-                  <span
-                    className="min-w-0 truncate text-xs text-red-500"
-                    title={pagingError}
+            {trajectory.pagination.complete &&
+              trajectory.pagination.hasEarlier && (
+                <div className="mt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={loadEarlier}
+                    disabled={loadingEarlier}
+                    className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {pagingError}
-                  </span>
-                )}
-              </div>
-            )}
+                    {loadingEarlier && (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    )}
+                    加载更早记录（剩余 {trajectory.pagination.earlierRecords}{" "}
+                    条）
+                  </button>
+                  {pagingError && (
+                    <span
+                      className="min-w-0 truncate text-xs text-red-500"
+                      title={pagingError}
+                    >
+                      {pagingError}
+                    </span>
+                  )}
+                </div>
+              )}
           </div>
           {visibleTurns.length === 0 ? (
             <div className="p-8 text-center text-sm text-muted-foreground">

@@ -99,8 +99,15 @@ export async function getTrajectory(
   filePath: string,
   maxRecords: number = 500,
   beforeRecord?: number,
+  fast: boolean = false,
 ): Promise<Trajectory> {
-  return invoke<Trajectory>("get_trajectory", { source, filePath, maxRecords, beforeRecord });
+  return invoke<Trajectory>("get_trajectory", {
+    source,
+    filePath,
+    maxRecords,
+    beforeRecord,
+    fast,
+  });
 }
 
 export async function globalSearch(

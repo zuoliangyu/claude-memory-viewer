@@ -20,11 +20,13 @@ Token 统计遵循 Codex 的累计快照：优先使用 `last_token_usage`，没
 
 解析过程只读本地文件，完整输出字段统一限制在 12,000 字符以内；未知事件不会阻断会话，其信息会进入警告列表。
 
-首次打开需要完整投影当前 rollout lineage，以保证全局统计与稳定序号正确。投影在阻塞线程池执行，JSONL 逐行处理而不是同时保留整份事件树，并按文件修改时间与大小缓存最近两个会话；切换视图和加载更早记录会复用缓存。lineage 查找优先检查相邻目录，必要时才建立一次进程级 rollout 索引。
+首次打开采用两阶段加载。大于 8 MiB 的当前 rollout 会先从文件尾部读取最多 8 MiB，返回最近事件并结束首屏加载；随后在阻塞线程池中完整投影当前 rollout lineage，补全全局统计、稳定序号和早期分页。快速结果的 `pagination.complete` 为 `false`，其中 Turn、Token、工具数和记录数只代表当前片段；完整结果会整体替换快速结果，不会混合两套序号。8 MiB 以内的文件直接返回完整投影。
+
+完整投影按 JSONL 逐行处理，而不是同时保留整份事件树，并按文件修改时间与大小缓存最近两个会话；切换视图和加载更早记录会复用缓存。相同文件的并发缓存缺失会合并为一次构建，避免 React 开发模式重复扫描超大文件；不同文件仍可独立投影。lineage 查找优先检查相邻目录，必要时才建立一次进程级 rollout 索引。
 
 ## API
 
-桌面端使用 Tauri command：`get_trajectory(source, filePath, maxRecords?, beforeRecord?)`。
+桌面端使用 Tauri command：`get_trajectory(source, filePath, maxRecords?, beforeRecord?, fast?)`。
 
 Web 端使用：
 
@@ -32,7 +34,7 @@ Web 端使用：
 GET /api/trajectory?source=codex&filePath=<url-encoded-rollout-path>&maxRecords=500&beforeRecord=<exclusive-record-index>
 ```
 
-当前轨迹接口只接受 `codex` 数据源。`maxRecords` 默认 500，服务端限制为 50 到 1000；不传 `beforeRecord` 时返回最近一页，继续向前加载时传入上一页的 `pagination.nextBeforeRecord`。`record.index` 是完整投影生成的稳定序号，相邻页不会重叠；`stats.records` 始终表示全会话记录总数，`stats.visibleRecords` 表示当前响应条数。
+当前轨迹接口只接受 `codex` 数据源。`fast=true` 请求快速尾部页；未传或为 `false` 时请求完整投影。`maxRecords` 默认 500，服务端限制为 50 到 1000；不传 `beforeRecord` 时返回最近一页，继续向前加载时传入上一页的 `pagination.nextBeforeRecord`。完整页中 `record.index` 是稳定序号，相邻页不会重叠；`stats.records` 表示全会话记录总数，`stats.visibleRecords` 表示当前响应条数。快速页的序号和统计只在当前片段内有效，不能直接与完整页合并。
 
 前端每页加载 200 条记录，按稳定序号合并早期页面，并支持在已加载范围内搜索 `event`、`summary`、`input`、`output`，以及按记录类型筛选。后续如要支持实时尾部更新，应在此模型上增加 revision/cursor，而不是复用消息分页接口。
 

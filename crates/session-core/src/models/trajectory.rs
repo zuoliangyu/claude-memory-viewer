@@ -16,6 +16,7 @@ pub struct Trajectory {
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct TrajectoryPagination {
+    pub complete: bool,
     pub first_record: Option<usize>,
     pub last_record: Option<usize>,
     pub earlier_records: usize,

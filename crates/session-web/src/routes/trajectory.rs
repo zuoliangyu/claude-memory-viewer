@@ -14,6 +14,7 @@ pub struct TrajectoryQuery {
     pub file_path: String,
     pub max_records: Option<usize>,
     pub before_record: Option<usize>,
+    pub fast: Option<bool>,
 }
 
 pub async fn get_trajectory(
@@ -28,7 +29,11 @@ pub async fn get_trajectory(
     let resolved_path = resolve_session_file_path(&params.source, &params.file_path)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let result = tokio::task::spawn_blocking(move || {
-        codex_trajectory::parse_page(&resolved_path, params.max_records, params.before_record)
+        if params.fast.unwrap_or(false) {
+            codex_trajectory::parse_fast_page(&resolved_path, params.max_records)
+        } else {
+            codex_trajectory::parse_page(&resolved_path, params.max_records, params.before_record)
+        }
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

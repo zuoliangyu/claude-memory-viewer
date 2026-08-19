@@ -6,7 +6,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::num::NonZeroUsize;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
@@ -29,10 +29,12 @@ const PROJECTION_CACHE_CAPACITY: usize = 2;
 const DEFAULT_PAGE_RECORDS: usize = 500;
 const MIN_PAGE_RECORDS: usize = 50;
 const MAX_PAGE_RECORDS: usize = 1_000;
+const FAST_TAIL_BYTES: u64 = 8 * 1024 * 1024;
 
 #[derive(Clone)]
 struct Segment {
     path: PathBuf,
+    start_byte: Option<u64>,
     start_ordinal: Option<u64>,
     end_ordinal: Option<u64>,
     end_byte: Option<u64>,
@@ -54,12 +56,36 @@ fn projection_cache() -> &'static Mutex<LruCache<String, CachedProjection>> {
     })
 }
 
+fn projection_build_locks() -> &'static Mutex<HashMap<String, Arc<Mutex<()>>>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    LOCKS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn cached_project(path: &Path) -> Result<Arc<Trajectory>, String> {
     let metadata =
         fs::metadata(path).map_err(|error| format!("Failed to read session metadata: {error}"))?;
     let modified_key = crate::state::file_modified_key(path)?;
     let file_size = metadata.len();
     let key = path.to_string_lossy().into_owned();
+    let cached = {
+        let mut cache = projection_cache().lock();
+        cache
+            .get(&key)
+            .filter(|cached| cached.modified_key == modified_key && cached.file_size == file_size)
+            .map(|cached| Arc::clone(&cached.trajectory))
+    };
+    if let Some(cached) = cached {
+        return Ok(cached);
+    }
+
+    // React StrictMode can issue the same request twice in development. Serialize
+    // cache misses and check again so a large rollout is projected only once.
+    let build_lock = projection_build_locks()
+        .lock()
+        .entry(key.clone())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone();
+    let _build_guard = build_lock.lock();
     let cached = {
         let mut cache = projection_cache().lock();
         cache
@@ -361,6 +387,7 @@ fn resolve_segments(path: &Path, warnings: &mut Vec<TrajectoryWarning>) -> Vec<S
     let Some(metadata) = first_metadata(path) else {
         return vec![Segment {
             path: path.to_path_buf(),
+            start_byte: None,
             start_ordinal: None,
             end_ordinal: None,
             end_byte: None,
@@ -374,6 +401,7 @@ fn resolve_segments(path: &Path, warnings: &mut Vec<TrajectoryWarning>) -> Vec<S
     {
         return vec![Segment {
             path: path.to_path_buf(),
+            start_byte: None,
             start_ordinal: None,
             end_ordinal: None,
             end_byte: None,
@@ -397,6 +425,7 @@ fn resolve_segments(path: &Path, warnings: &mut Vec<TrajectoryWarning>) -> Vec<S
             );
             return vec![Segment {
                 path: path.to_path_buf(),
+                start_byte: None,
                 start_ordinal: None,
                 end_ordinal: None,
                 end_byte: None,
@@ -411,6 +440,7 @@ fn resolve_segments(path: &Path, warnings: &mut Vec<TrajectoryWarning>) -> Vec<S
             );
             return vec![Segment {
                 path: path.to_path_buf(),
+                start_byte: None,
                 start_ordinal: None,
                 end_ordinal: None,
                 end_byte: None,
@@ -423,6 +453,7 @@ fn resolve_segments(path: &Path, warnings: &mut Vec<TrajectoryWarning>) -> Vec<S
         let start_ordinal = base.as_ref().map(|(_, ordinal, _)| ordinal + 1).or(Some(1));
         segments.push(Segment {
             path: current.clone(),
+            start_byte: None,
             start_ordinal,
             end_ordinal,
             end_byte,
@@ -466,13 +497,20 @@ where
     F: FnMut(usize, Result<Value, ()>),
 {
     for segment in segments {
-        let Ok(file) = fs::File::open(&segment.path) else {
+        let Ok(mut file) = fs::File::open(&segment.path) else {
             continue;
         };
+        let start_byte = segment
+            .start_byte
+            .and_then(|candidate| next_line_start(&mut file, candidate).ok())
+            .unwrap_or(0);
+        if file.seek(SeekFrom::Start(start_byte)).is_err() {
+            continue;
+        }
         let mut reader = BufReader::new(file);
         let mut line = String::new();
         let mut line_number = 0usize;
-        let mut bytes_read = 0u64;
+        let mut bytes_read = start_byte;
         loop {
             line.clear();
             let Ok(count) = reader.read_line(&mut line) else {
@@ -504,6 +542,25 @@ where
             }
             handle(line_number, Ok(row));
         }
+    }
+}
+
+fn next_line_start(file: &mut fs::File, candidate: u64) -> std::io::Result<u64> {
+    if candidate == 0 {
+        return Ok(0);
+    }
+    file.seek(SeekFrom::Start(candidate))?;
+    let mut buffer = [0u8; 16 * 1024];
+    let mut position = candidate;
+    loop {
+        let count = file.read(&mut buffer)?;
+        if count == 0 {
+            return Ok(position);
+        }
+        if let Some(offset) = buffer[..count].iter().position(|byte| *byte == b'\n') {
+            return Ok(position.saturating_add(offset as u64).saturating_add(1));
+        }
+        position = position.saturating_add(count as u64);
     }
 }
 
@@ -608,6 +665,37 @@ pub fn parse_page(
     before_record: Option<usize>,
 ) -> Result<Trajectory, String> {
     let projection = cached_project(path)?;
+    Ok(paginate(&projection, max_records, before_record, true))
+}
+
+pub fn parse_fast_page(path: &Path, max_records: Option<usize>) -> Result<Trajectory, String> {
+    if !path.is_file() {
+        return Err(format!("Session file not found: {}", path.display()));
+    }
+    let file_size = fs::metadata(path)
+        .map_err(|error| format!("Failed to read session metadata: {error}"))?
+        .len();
+    if file_size <= FAST_TAIL_BYTES {
+        return parse_page(path, max_records, None);
+    }
+
+    let segment = Segment {
+        path: path.to_path_buf(),
+        start_byte: Some(file_size.saturating_sub(FAST_TAIL_BYTES)),
+        start_ordinal: None,
+        end_ordinal: None,
+        end_byte: None,
+    };
+    let projection = project_segments(path, vec![segment], Vec::new())?;
+    Ok(paginate(&projection, max_records, None, false))
+}
+
+fn paginate(
+    projection: &Trajectory,
+    max_records: Option<usize>,
+    before_record: Option<usize>,
+    complete: bool,
+) -> Trajectory {
     let total = projection.records.len();
     let page_size = max_records
         .unwrap_or(DEFAULT_PAGE_RECORDS)
@@ -640,12 +728,13 @@ pub fn parse_page(
     let later_records = last_record.map_or(total, |index| total.saturating_sub(index));
     let mut stats = projection.stats.clone();
     stats.visible_records = records.len();
-    Ok(Trajectory {
+    Trajectory {
         schema_version: projection.schema_version,
         generated_at: Utc::now().to_rfc3339(),
         session: projection.session.clone(),
         stats,
         pagination: TrajectoryPagination {
+            complete,
             first_record,
             last_record,
             earlier_records,
@@ -657,7 +746,7 @@ pub fn parse_page(
         turns,
         records,
         warnings: projection.warnings.clone(),
-    })
+    }
 }
 
 fn project(path: &Path) -> Result<Trajectory, String> {
@@ -666,6 +755,14 @@ fn project(path: &Path) -> Result<Trajectory, String> {
     }
     let mut warnings = Vec::new();
     let segments = resolve_segments(path, &mut warnings);
+    project_segments(path, segments, warnings)
+}
+
+fn project_segments(
+    path: &Path,
+    segments: Vec<Segment>,
+    mut warnings: Vec<TrajectoryWarning>,
+) -> Result<Trajectory, String> {
     let metadata = first_metadata(path).unwrap_or(Value::Object(Default::default()));
     let paginated = metadata
         .get("history_mode")

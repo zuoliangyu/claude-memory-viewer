@@ -275,12 +275,14 @@ export async function getTrajectory(
   filePath: string,
   maxRecords: number = 500,
   beforeRecord?: number,
+  fast: boolean = false,
 ): Promise<Trajectory> {
   return apiFetch("/api/trajectory", {
     source,
     filePath,
     maxRecords: String(maxRecords),
     ...(beforeRecord == null ? {} : { beforeRecord: String(beforeRecord) }),
+    ...(fast ? { fast: "true" } : {}),
   });
 }
 
