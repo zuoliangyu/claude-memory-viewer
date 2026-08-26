@@ -16,7 +16,9 @@ export function useBackgroundRefresh() {
     if (!__IS_TAURI__ || isRemoteNodeActive()) return;
 
     const initialTimer = setTimeout(() => {
-      void refreshInBackground(true, false, { reason: "startup" });
+      // 首屏加载已经读取过项目和当前会话。这里只核对缓存，避免切换数据源后
+      // 立刻重复深扫全部 rollout，与消息首屏请求争用磁盘和命令执行线程。
+      void refreshInBackground(false, false, { reason: "startup" });
     }, INITIAL_REFRESH_DELAY_MS);
 
     const interval = setInterval(() => {

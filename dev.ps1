@@ -10,6 +10,7 @@ $devExitCode = 1
 
 Write-Host "[ASV-PERF] 开发性能诊断已启用"
 Write-Host "[ASV-PERF] 日志文件: $perfLog"
+Write-Host "[ASV-PERF] 分析命令: .\scripts\analyze-perf-log.ps1"
 
 try {
     & npx tauri dev 2>&1 | Tee-Object -FilePath $perfLog

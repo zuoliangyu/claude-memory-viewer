@@ -37,15 +37,19 @@ pub fn emit_backend(name: &str, duration_ms: f64, fields: Value) {
 }
 
 #[tauri::command]
-pub fn report_perf_events(events: Vec<PerfDiagnosticEvent>) -> Result<(), String> {
+pub async fn report_perf_events(events: Vec<PerfDiagnosticEvent>) -> Result<(), String> {
     if !enabled() {
         return Ok(());
     }
 
-    for event in events.into_iter().take(MAX_EVENTS_PER_BATCH) {
-        let serialized = serde_json::to_string(&event)
-            .map_err(|error| format!("性能诊断事件序列化失败: {error}"))?;
-        eprintln!("[ASV-PERF] {serialized}");
-    }
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        for event in events.into_iter().take(MAX_EVENTS_PER_BATCH) {
+            let serialized = serde_json::to_string(&event)
+                .map_err(|error| format!("性能诊断事件序列化失败: {error}"))?;
+            eprintln!("[ASV-PERF] {serialized}");
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("性能诊断日志任务失败: {error}"))?
 }

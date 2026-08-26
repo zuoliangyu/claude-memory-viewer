@@ -42,6 +42,8 @@ GET /api/trajectory?source=codex&filePath=<url-encoded-rollout-path>&maxRecords=
 
 通过 `./dev.ps1` 启动桌面应用时会自动启用性能诊断，并将终端输出同时保存到 `target/perf/dev-<时间>.log`。直接运行 `npx tauri dev`、Web 开发模式和正式构建均不会启用该诊断。Rust 端还使用 `debug_assertions` 做二次限制，正式构建即使被设置同名环境变量也不会接受前端性能事件。
 
+复现一次卡顿后可运行 `./scripts/analyze-perf-log.ps1` 分析最新日志。脚本默认将最慢消息 IPC 超过 5 秒视为失败，也可通过 `-IpcThresholdMs` 调整阈值；它只读取开发日志，不会在正式构建中运行。
+
 复现卡顿后，可用以下命令提取时间线：
 
 ```powershell
@@ -67,6 +69,8 @@ Select-String -Path target\perf\dev-*.log -Pattern '\[ASV-PERF\]'
 - `browser.event_loop_lag`：可见窗口中的事件循环延迟超过 100ms。
 
 `fields` 中的 `detailChars`、`textChars` 和 `approximateTextMb` 用于判断大段 `input/output` 或消息正文是否造成 IPC 与内存压力；`documentNodes`、`rootNodes` 和 `usedHeapMb` 用于判断 DOM 与垃圾回收压力。轨迹请求在 React StrictMode 下仍可能出现两次；消息首次请求通过 in-flight 合并，只会执行一次后端读取，并以 `messages.request_deduplicated` 记录被合并的调用。
+
+桌面端的项目与会话扫描命令统一在阻塞线程池执行，避免深扫大型 rollout 时占用 Tauri UI/IPC 线程。启动后的首次后台核对只读取现有缓存，不会立即重复强制扫描；手动重建和周期刷新仍会更新缓存，但不会阻塞窗口交互。开发诊断的终端写入同样在阻塞线程执行，日志管道变慢时不会反向占用 UI 线程。
 
 ## 归属
 

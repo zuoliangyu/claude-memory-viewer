@@ -3,33 +3,39 @@ use session_core::provider::{claude, codex, grok};
 use session_core::provider::claude::{DeleteLevel, DeleteResult};
 
 #[tauri::command]
-pub fn get_projects(source: String) -> Result<Vec<ProjectEntry>, String> {
-    match source.as_str() {
+pub async fn get_projects(source: String) -> Result<Vec<ProjectEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || match source.as_str() {
         "claude" => claude::get_projects(),
         "codex" => codex::get_projects(),
         "grok" => grok::get_projects(),
         _ => Err(format!("Unknown source: {}", source)),
-    }
+    })
+    .await
+    .map_err(|error| format!("项目列表读取任务失败: {error}"))?
 }
 
 #[tauri::command]
-pub fn refresh_projects_cache(source: String) -> Result<Vec<ProjectEntry>, String> {
-    match source.as_str() {
+pub async fn refresh_projects_cache(source: String) -> Result<Vec<ProjectEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || match source.as_str() {
         "claude" => claude::refresh_projects_cache(),
         "codex" => codex::get_projects(),
         "grok" => grok::get_projects(),
         _ => Err(format!("Unknown source: {}", source)),
-    }
+    })
+    .await
+    .map_err(|error| format!("项目缓存刷新任务失败: {error}"))?
 }
 
 #[tauri::command]
-pub fn rebuild_projects_cache(source: String) -> Result<Vec<ProjectEntry>, String> {
-    match source.as_str() {
+pub async fn rebuild_projects_cache(source: String) -> Result<Vec<ProjectEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || match source.as_str() {
         "claude" => claude::refresh_projects_cache(),
         "codex" => codex::rebuild_projects_cache(),
         "grok" => grok::rebuild_projects_cache(),
         _ => Err(format!("Unknown source: {}", source)),
-    }
+    })
+    .await
+    .map_err(|error| format!("项目缓存重建任务失败: {error}"))?
 }
 
 #[tauri::command]

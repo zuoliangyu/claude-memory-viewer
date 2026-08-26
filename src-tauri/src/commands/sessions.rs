@@ -24,51 +24,63 @@ fn merge_session_metadata(source: &str, project_id: &str, sessions: &mut [Sessio
 }
 
 #[tauri::command]
-pub fn get_sessions(source: String, project_id: String) -> Result<Vec<SessionIndexEntry>, String> {
-    let mut sessions = match source.as_str() {
-        "claude" => claude::get_sessions(&project_id)?,
-        "codex" => codex::get_sessions(&project_id)?,
-        "grok" => grok::get_sessions(&project_id)?,
-        _ => return Err(format!("Unknown source: {}", source)),
-    };
-
-    merge_session_metadata(&source, &project_id, &mut sessions);
-
-    Ok(sessions)
-}
-
-#[tauri::command]
-pub fn refresh_sessions_cache(
+pub async fn get_sessions(
     source: String,
     project_id: String,
 ) -> Result<Vec<SessionIndexEntry>, String> {
-    let mut sessions = match source.as_str() {
-        "claude" => claude::refresh_sessions_cache(&project_id)?,
-        "codex" => codex::refresh_sessions_cache(&project_id)?,
-        "grok" => grok::refresh_sessions_cache(&project_id)?,
-        _ => return Err(format!("Unknown source: {}", source)),
-    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut sessions = match source.as_str() {
+            "claude" => claude::get_sessions(&project_id)?,
+            "codex" => codex::get_sessions(&project_id)?,
+            "grok" => grok::get_sessions(&project_id)?,
+            _ => return Err(format!("Unknown source: {}", source)),
+        };
 
-    merge_session_metadata(&source, &project_id, &mut sessions);
-
-    Ok(sessions)
+        merge_session_metadata(&source, &project_id, &mut sessions);
+        Ok(sessions)
+    })
+    .await
+    .map_err(|error| format!("会话列表读取任务失败: {error}"))?
 }
 
 #[tauri::command]
-pub fn get_invalid_sessions(
+pub async fn refresh_sessions_cache(
     source: String,
     project_id: String,
 ) -> Result<Vec<SessionIndexEntry>, String> {
-    let mut sessions = match source.as_str() {
-        "claude" => claude::get_invalid_sessions(&project_id)?,
-        "codex" => codex::get_invalid_sessions(&project_id)?,
-        "grok" => grok::get_invalid_sessions(&project_id)?,
-        _ => return Err(format!("Unknown source: {}", source)),
-    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut sessions = match source.as_str() {
+            "claude" => claude::refresh_sessions_cache(&project_id)?,
+            "codex" => codex::refresh_sessions_cache(&project_id)?,
+            "grok" => grok::refresh_sessions_cache(&project_id)?,
+            _ => return Err(format!("Unknown source: {}", source)),
+        };
 
-    merge_session_metadata(&source, &project_id, &mut sessions);
+        merge_session_metadata(&source, &project_id, &mut sessions);
+        Ok(sessions)
+    })
+    .await
+    .map_err(|error| format!("会话缓存刷新任务失败: {error}"))?
+}
 
-    Ok(sessions)
+#[tauri::command]
+pub async fn get_invalid_sessions(
+    source: String,
+    project_id: String,
+) -> Result<Vec<SessionIndexEntry>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut sessions = match source.as_str() {
+            "claude" => claude::get_invalid_sessions(&project_id)?,
+            "codex" => codex::get_invalid_sessions(&project_id)?,
+            "grok" => grok::get_invalid_sessions(&project_id)?,
+            _ => return Err(format!("Unknown source: {}", source)),
+        };
+
+        merge_session_metadata(&source, &project_id, &mut sessions);
+        Ok(sessions)
+    })
+    .await
+    .map_err(|error| format!("无效会话读取任务失败: {error}"))?
 }
 
 #[tauri::command]
