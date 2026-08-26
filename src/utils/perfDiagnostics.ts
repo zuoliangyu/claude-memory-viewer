@@ -1,4 +1,5 @@
 import type { ProfilerOnRenderCallback } from "react";
+import type { DisplayMessage } from "../types";
 
 declare const __IS_TAURI__: boolean;
 
@@ -15,6 +16,20 @@ interface ChromiumPerformanceMemory {
   usedJSHeapSize: number;
   totalJSHeapSize: number;
   jsHeapSizeLimit: number;
+}
+
+export type MessageRequestStage =
+  | "initial"
+  | "older"
+  | "newer"
+  | "jump"
+  | "reload"
+  | "background";
+
+export interface PendingMessageCommit {
+  requestId: string;
+  stage: MessageRequestStage;
+  responseAt: number;
 }
 
 const FLUSH_DELAY_MS = 500;
@@ -34,6 +49,7 @@ let flushTimer: number | null = null;
 let flushing = false;
 let droppedEvents = 0;
 const eventQueue: PerfDiagnosticEvent[] = [];
+let pendingMessageCommit: PendingMessageCommit | null = null;
 
 function round(value: number): number {
   return Math.round(value * 100) / 100;
@@ -120,6 +136,58 @@ export function getBrowserPerfSnapshot(
   };
 }
 
+function getMessageBlockChars(message: DisplayMessage): number {
+  return message.content.reduce((total, block) => {
+    switch (block.type) {
+      case "text":
+      case "reasoning":
+        return total + block.text.length;
+      case "thinking":
+        return total + block.thinking.length;
+      case "tool_use":
+        return total + block.input.length;
+      case "tool_result":
+        return total + block.content.length;
+      case "function_call":
+        return total + block.arguments.length;
+      case "function_call_output":
+        return total + block.output.length;
+    }
+  }, 0);
+}
+
+export function getMessagesPerfFields(
+  messages: DisplayMessage[],
+): Record<string, PerfFieldValue> {
+  let blocks = 0;
+  let textChars = 0;
+  for (const message of messages) {
+    blocks += message.content.length;
+    textChars += getMessageBlockChars(message);
+  }
+
+  return {
+    messages: messages.length,
+    blocks,
+    textChars,
+    approximateTextMb: round((textChars * 2) / 1024 / 1024),
+  };
+}
+
+export function markPendingMessageCommit(
+  commit: PendingMessageCommit,
+): void {
+  if (!PERF_DIAGNOSTICS_ENABLED) return;
+  pendingMessageCommit = commit;
+}
+
+export function consumePendingMessageCommit(): PendingMessageCommit | null {
+  if (!PERF_DIAGNOSTICS_ENABLED) return null;
+  const commit = pendingMessageCommit;
+  pendingMessageCommit = null;
+  return commit;
+}
+
 export const recordPerfProfilerRender: ProfilerOnRenderCallback = (
   id,
   phase,
@@ -129,6 +197,23 @@ export const recordPerfProfilerRender: ProfilerOnRenderCallback = (
   commitTime,
 ) => {
   recordPerfDiagnostic("react.commit", actualDuration, {
+    id,
+    phase,
+    baseDurationMs: round(baseDuration),
+    startTimeMs: round(startTime),
+    commitTimeMs: round(commitTime),
+  });
+};
+
+export const recordMessagesProfilerRender: ProfilerOnRenderCallback = (
+  id,
+  phase,
+  actualDuration,
+  baseDuration,
+  startTime,
+  commitTime,
+) => {
+  recordPerfDiagnostic("messages.react_commit", actualDuration, {
     id,
     phase,
     baseDurationMs: round(baseDuration),

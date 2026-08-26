@@ -3,10 +3,12 @@ import {
   memo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
@@ -35,6 +37,11 @@ import { TrajectoryView } from "./TrajectoryView";
 import { isRemoteNodeActive } from "../../services/nodeConfig";
 import {
   PERF_DIAGNOSTICS_ENABLED,
+  consumePendingMessageCommit,
+  getBrowserPerfSnapshot,
+  getMessagesPerfFields,
+  recordMessagesProfilerRender,
+  recordPerfDiagnostic,
   recordPerfProfilerRender,
 } from "../../utils/perfDiagnostics";
 
@@ -377,13 +384,36 @@ export function MessagesPage() {
     toggleTimestamp,
     toggleModel,
     refreshInBackground,
-    reloadLatestMessages,
-  } = useAppStore();
+  } = useAppStore(
+    useShallow((state) => ({
+      source: state.source,
+      messages: state.messages,
+      messagesLoading: state.messagesLoading,
+      messagesHasMore: state.messagesHasMore,
+      messagesHasNewer: state.messagesHasNewer,
+      messagesTotal: state.messagesTotal,
+      loadedStart: state.loadedStart,
+      loadedEnd: state.loadedEnd,
+      selectSession: state.selectSession,
+      selectProject: state.selectProject,
+      loadMoreMessages: state.loadMoreMessages,
+      loadNewerMessages: state.loadNewerMessages,
+      jumpToMessageIndex: state.jumpToMessageIndex,
+      sessions: state.sessions,
+      projects: state.projects,
+      searchResults: state.searchResults,
+      showTimestamp: state.showTimestamp,
+      showModel: state.showModel,
+      timeZone: state.timeZone,
+      toggleTimestamp: state.toggleTimestamp,
+      toggleModel: state.toggleModel,
+      refreshInBackground: state.refreshInBackground,
+    })),
+  );
 
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatInputRef = useRef<ChatInputHandle>(null);
-  const autoFillAttemptRef = useRef(0);
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [showScrollUp, setShowScrollUp] = useState(false);
   const scrollButtonStateRef = useRef({ showScrollDown: false, showScrollUp: false });
@@ -512,7 +542,6 @@ export function MessagesPage() {
     let cancelled = false;
     setInitialScrollDone(false);
     setViewMode("messages");
-    autoFillAttemptRef.current = 0;
     scrollButtonStateRef.current = { showScrollDown: false, showScrollUp: false };
     setShowScrollDown(false);
     setShowScrollUp(false);
@@ -640,39 +669,6 @@ export function MessagesPage() {
     }
   }, [loadingAll]);
 
-  useEffect(() => {
-    if (
-      !initialScrollDone ||
-      messagesLoading ||
-      !messagesHasMore ||
-      matchedOnly ||
-      !!scrollToMessageId ||
-      autoFillAttemptRef.current >= 1
-    ) {
-      return;
-    }
-
-    const raf = requestAnimationFrame(() => {
-      const viewport = containerRef.current;
-      if (!viewport) return;
-      const canScroll = viewport.scrollHeight > viewport.clientHeight + 24;
-      if (!canScroll) {
-        autoFillAttemptRef.current += 1;
-        requestOlderMessages();
-      }
-    });
-
-    return () => cancelAnimationFrame(raf);
-  }, [
-    initialScrollDone,
-    matchedOnly,
-    messages,
-    messagesHasMore,
-    messagesLoading,
-    requestOlderMessages,
-    scrollToMessageId,
-  ]);
-
   const updateScrollButtonState = useCallback((nextShowScrollUp: boolean, nextShowScrollDown: boolean) => {
     const current = scrollButtonStateRef.current;
 
@@ -714,7 +710,8 @@ export function MessagesPage() {
     }
 
     // Load older messages when scrolling near top
-    if (!messagesLoading && messagesHasMore && scrollTop < 200) {
+    const canScroll = scrollHeight > clientHeight + 24;
+    if (!messagesLoading && messagesHasMore && canScroll && scrollTop < 200) {
       requestOlderMessages();
     }
     // Load newer messages when scrolling near bottom (and we're not at the
@@ -788,6 +785,50 @@ export function MessagesPage() {
     if (idx === -1) return messages;
     return buildFocusedMessages(messages, idx);
   }, [messages, matchedOnly, scrollToMessageId]);
+
+  useLayoutEffect(() => {
+    if (!PERF_DIAGNOSTICS_ENABLED || messages.length === 0) return;
+    const pendingCommit = consumePendingMessageCommit();
+    if (!pendingCommit) return;
+
+    const committedAt = performance.now();
+    const viewport = containerRef.current;
+    const commonFields = {
+      requestId: pendingCommit.requestId,
+      stage: pendingCommit.stage,
+      loadedStart,
+      loadedEnd,
+      total: messagesTotal,
+      ...getMessagesPerfFields(messages),
+      ...getBrowserPerfSnapshot(viewport),
+    };
+    recordPerfDiagnostic(
+      "messages.dom_committed",
+      committedAt - pendingCommit.responseAt,
+      commonFields,
+    );
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (!viewport?.isConnected) return;
+        recordPerfDiagnostic(
+          "messages.paint_ready",
+          performance.now() - committedAt,
+          {
+            ...commonFields,
+            ...getBrowserPerfSnapshot(viewport),
+          },
+        );
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+    };
+  }, [loadedEnd, loadedStart, messages, messagesTotal]);
+
   // Keep navigation targets aligned with the messages currently rendered in the DOM.
   const userDots = useMemo(() => {
     let userIndex = 0;
@@ -916,7 +957,7 @@ export function MessagesPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const { terminalShell } = useAppStore();
+  const terminalShell = useAppStore((state) => state.terminalShell);
 
   const [resumeError, setResumeError] = useState<string | null>(null);
 
@@ -958,8 +999,7 @@ export function MessagesPage() {
   useEffect(() => {
     if (prevStreamingRef.current && !chatStreaming && chatMessages.length > 0) {
       const refreshTimer = setTimeout(() => {
-        void refreshInBackground(true);
-        void reloadLatestMessages();
+        void refreshInBackground(true, false, { reason: "chat-complete" });
       }, 300);
       const clearTimer = setTimeout(() => {
         clearPane(mainPaneId);
@@ -971,7 +1011,7 @@ export function MessagesPage() {
       };
     }
     prevStreamingRef.current = chatStreaming;
-  }, [chatStreaming, chatMessages.length, clearPane, mainPaneId, refreshInBackground, reloadLatestMessages]);
+  }, [chatStreaming, chatMessages.length, clearPane, mainPaneId, refreshInBackground]);
 
   const handleSendChat = (prompt: string) => {
     if (!resolvedSessionId) return;
@@ -1009,6 +1049,29 @@ export function MessagesPage() {
     !matchedOnly &&
     splitFilePaths.length === 0 &&
     messagesTotal > JUMP_CONTROLS_MIN_TOTAL;
+  const messageThread = (
+    <MessageThread
+      messages={displayedMessages}
+      source={source}
+      showTimestamp={showTimestamp}
+      showModel={showModel}
+      sessionId={resolvedSessionId ?? undefined}
+      projectId={projectId}
+      filePath={filePath}
+      sessionTitle={resolvedSessionTitle}
+      projectName={project?.shortName || projectId}
+      projectPath={chatProjectPath}
+      viewportRef={containerRef}
+      priorityMessageId={scrollToMessageId}
+    />
+  );
+  const measuredMessageThread = PERF_DIAGNOSTICS_ENABLED ? (
+    <Profiler id="MessageThread" onRender={recordMessagesProfilerRender}>
+      {messageThread}
+    </Profiler>
+  ) : (
+    messageThread
+  );
 
   return (
     <div className="flex flex-col h-dvh max-h-dvh relative overflow-hidden">
@@ -1409,20 +1472,7 @@ export function MessagesPage() {
                     加载消息中...
                   </div>
                 ) : (
-                  <MessageThread
-                    messages={displayedMessages}
-                    source={source}
-                    showTimestamp={showTimestamp}
-                    showModel={showModel}
-                    sessionId={resolvedSessionId ?? undefined}
-                    projectId={projectId}
-                    filePath={filePath}
-                    sessionTitle={resolvedSessionTitle}
-                    projectName={project?.shortName || projectId}
-                    projectPath={chatProjectPath}
-                    viewportRef={containerRef}
-                    priorityMessageId={scrollToMessageId}
-                  />
+                  measuredMessageThread
                 )}
                 {viewMode === "messages" && !messagesLoading && messages.length > 0 && chatMessages.length === 0 && !chatStreaming && (
                   <div className="text-center py-4 text-xs text-muted-foreground">
@@ -1770,27 +1820,10 @@ function SplitSessionPane({
     }
   }, [chatMessages, chatStreaming]);
 
-  useEffect(() => {
-    if (!initialScrollDoneRef.current || loading || !hasMore) {
-      return;
-    }
-
-    const raf = requestAnimationFrame(() => {
-      const viewport = containerRef.current;
-      if (!viewport) return;
-      const canScroll = viewport.scrollHeight > viewport.clientHeight + 24;
-      if (!canScroll) {
-        requestOlderMessages();
-      }
-    });
-
-    return () => cancelAnimationFrame(raf);
-  }, [hasMore, loading, messages, requestOlderMessages]);
-
   const handleScroll = useCallback(() => {
     if (!containerRef.current || loading || !hasMore) return;
-    const { scrollTop } = containerRef.current;
-    if (scrollTop < 200) {
+    const { scrollTop, scrollHeight, clientHeight } = containerRef.current;
+    if (scrollHeight > clientHeight + 24 && scrollTop < 200) {
       requestOlderMessages();
     }
   }, [hasMore, loading, requestOlderMessages]);

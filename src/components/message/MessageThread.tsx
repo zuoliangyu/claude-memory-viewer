@@ -30,11 +30,9 @@ interface MessageThreadProps {
   priorityMessageId?: string | null;
 }
 
-const DEFER_RENDER_THRESHOLD = 120;
-const INITIAL_RECENT_RENDER_COUNT = 48;
-const BACKFILL_RENDER_BATCH = 24;
-const BACKFILL_DELAY_MS = 32;
-const DEFER_RENDER_ROOT_MARGIN = "1400px 0px 1400px 0px";
+const DEFER_RENDER_THRESHOLD = 24;
+const INITIAL_RECENT_RENDER_COUNT = 18;
+const DEFER_RENDER_ROOT_MARGIN = "480px 0px 480px 0px";
 const PLACEHOLDER_MIN_HEIGHT = 76;
 const PLACEHOLDER_MAX_HEIGHT = 320;
 
@@ -161,7 +159,7 @@ function DeferredThreadMessage({
   const [activated, setActivated] = useState(eager);
 
   useEffect(() => {
-    setActivated(eager);
+    if (eager) setActivated(true);
   }, [node.id, eager]);
 
   useEffect(() => {
@@ -469,39 +467,21 @@ export const MessageThread = memo(function MessageThread({
   }, [messages]);
   const flatNodes = useMemo(() => flattenThreadNodes(roots), [roots]);
   const shouldDefer = flatNodes.length > DEFER_RENDER_THRESHOLD;
-  const initialRenderedFrom = useMemo(
-    () => (shouldDefer ? Math.max(0, flatNodes.length - INITIAL_RECENT_RENDER_COUNT) : 0),
-    [flatNodes.length, shouldDefer]
-  );
-  const [renderedFromIndex, setRenderedFromIndex] = useState(initialRenderedFrom);
-
-  useEffect(() => {
-    setRenderedFromIndex(initialRenderedFrom);
-  }, [initialRenderedFrom, messages]);
-
-  useEffect(() => {
-    if (!shouldDefer || renderedFromIndex <= 0) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      setRenderedFromIndex((current) => Math.max(0, current - BACKFILL_RENDER_BATCH));
-    }, BACKFILL_DELAY_MS);
-
-    return () => window.clearTimeout(timer);
-  }, [renderedFromIndex, shouldDefer]);
-
   const eagerNodeIds = useMemo(() => {
     if (!shouldDefer) {
       return null;
     }
 
-    const ids = new Set(flatNodes.slice(renderedFromIndex).map((node) => node.id));
+    const ids = new Set(
+      flatNodes
+        .slice(Math.max(0, flatNodes.length - INITIAL_RECENT_RENDER_COUNT))
+        .map((node) => node.id),
+    );
     if (priorityMessageId) {
       ids.add(priorityMessageId);
     }
     return ids;
-  }, [flatNodes, priorityMessageId, renderedFromIndex, shouldDefer]);
+  }, [flatNodes, priorityMessageId, shouldDefer]);
 
   const renderMessageContent = (node: ThreadDisplayNode, threadFold?: ThreadFoldControl) => {
     const msg = node.message;

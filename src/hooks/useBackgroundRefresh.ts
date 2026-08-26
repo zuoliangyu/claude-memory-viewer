@@ -8,17 +8,19 @@ const INITIAL_REFRESH_DELAY_MS = 2000;
 const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
 
 export function useBackgroundRefresh() {
-  const { source, selectedProject, refreshInBackground } = useAppStore();
+  const source = useAppStore((state) => state.source);
+  const selectedProject = useAppStore((state) => state.selectedProject);
+  const refreshInBackground = useAppStore((state) => state.refreshInBackground);
 
   useEffect(() => {
     if (!__IS_TAURI__ || isRemoteNodeActive()) return;
 
     const initialTimer = setTimeout(() => {
-      refreshInBackground(true);
+      void refreshInBackground(true, false, { reason: "startup" });
     }, INITIAL_REFRESH_DELAY_MS);
 
     const interval = setInterval(() => {
-      refreshInBackground(true);
+      void refreshInBackground(true, false, { reason: "interval" });
     }, REFRESH_INTERVAL_MS);
 
     return () => {

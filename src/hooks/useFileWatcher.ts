@@ -1,8 +1,10 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useAppStore } from "../stores/appStore";
 import { isRemoteNodeActive } from "../services/nodeConfig";
+import { recordPerfDiagnostic } from "../utils/perfDiagnostics";
 
 declare const __IS_TAURI__: boolean;
+const FILE_CHANGE_DEBOUNCE_MS = 2_000;
 
 /**
  * In Tauri mode: use Tauri's event system (already handled by existing watcher).
@@ -15,27 +17,54 @@ export function useFileWatcher() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const pendingPathsRef = useRef(new Set<string>());
+  const hasUnknownPathsRef = useRef(false);
   const closingRef = useRef(false);
-  const { refreshInBackground } = useAppStore();
+  const refreshInBackground = useAppStore((state) => state.refreshInBackground);
 
-  const handleChange = useCallback(() => {
+  const handleChange = useCallback((paths?: string[]) => {
+    if (paths) {
+      for (const path of paths) pendingPathsRef.current.add(path);
+    } else {
+      hasUnknownPathsRef.current = true;
+    }
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      refreshInBackground(true);
-    }, 1000);
+      const changedPaths = hasUnknownPathsRef.current
+        ? undefined
+        : Array.from(pendingPathsRef.current);
+      pendingPathsRef.current.clear();
+      hasUnknownPathsRef.current = false;
+      recordPerfDiagnostic("watcher.refresh_dispatched", undefined, {
+        knownPaths: changedPaths != null,
+        changedPaths: changedPaths?.length ?? null,
+      });
+      void refreshInBackground(false, false, {
+        reason: "file-watcher",
+        changedPaths,
+      });
+    }, FILE_CHANGE_DEBOUNCE_MS);
   }, [refreshInBackground]);
 
   useEffect(() => {
     if (__IS_TAURI__ && !isRemoteNodeActive()) {
       let unlisten: (() => void) | undefined;
+      let cancelled = false;
       import("@tauri-apps/api/event").then(({ listen }) => {
-        listen<string[]>("fs-change", handleChange).then((fn) => {
+        listen<string[]>("fs-change", (event) => handleChange(event.payload)).then((fn) => {
+          if (cancelled) {
+            fn();
+            return;
+          }
           unlisten = fn;
         });
       });
       return () => {
+        cancelled = true;
         unlisten?.();
         clearTimeout(debounceRef.current);
+        pendingPathsRef.current.clear();
+        hasUnknownPathsRef.current = false;
       };
     }
 
@@ -56,7 +85,20 @@ export function useFileWatcher() {
           }
           wsRef.current = ws;
 
-          ws.onmessage = handleChange;
+          ws.onmessage = (event) => {
+            try {
+              const payload = JSON.parse(String(event.data)) as {
+                type?: string;
+                paths?: unknown;
+              };
+              const paths = Array.isArray(payload.paths)
+                ? payload.paths.filter((path): path is string => typeof path === "string")
+                : undefined;
+              handleChange(paths);
+            } catch {
+              handleChange();
+            }
+          };
 
           ws.onclose = () => {
             if (closingRef.current) {
@@ -86,6 +128,8 @@ export function useFileWatcher() {
       closingRef.current = true;
       clearTimeout(reconnectRef.current);
       clearTimeout(debounceRef.current);
+      pendingPathsRef.current.clear();
+      hasUnknownPathsRef.current = false;
       wsRef.current?.close();
     };
   }, [handleChange]);

@@ -12,9 +12,19 @@ import type {
   Bookmark,
   DeleteLevel,
   RecycledItem,
+  PaginatedMessages,
+  RangeMessages,
 } from "../types";
 import { api } from "../services/api";
 import { getSystemTimeZone, normalizeTimeZone } from "../utils/dateTime";
+import {
+  PERF_DIAGNOSTICS_ENABLED,
+  getMessagesPerfFields,
+  markPendingMessageCommit,
+  nextPerfTraceId,
+  recordPerfDiagnostic,
+  type MessageRequestStage,
+} from "../utils/perfDiagnostics";
 
 /**
  * Window size for the progressive message view: how many messages we
@@ -34,6 +44,219 @@ const JUMP_HALF_WINDOW = 15;
  * Concurrent callers share the same promise.
  */
 const projectsInFlight = new Map<string, Promise<void>>();
+const initialMessagesInFlight = new Map<
+  string,
+  Promise<TracedMessageResult<PaginatedMessages>>
+>();
+
+export interface BackgroundRefreshContext {
+  reason?: "startup" | "interval" | "file-watcher" | "chat-complete" | "action";
+  changedPaths?: string[];
+}
+
+interface TracedMessageResult<T extends PaginatedMessages | RangeMessages> {
+  result: T;
+  requestId: string;
+  responseAt: number;
+}
+
+function normalizeFilePath(value: string): string {
+  const normalized = value.replace(/\\/g, "/");
+  return /^[a-z]:\//i.test(normalized) ? normalized.toLowerCase() : normalized;
+}
+
+function pathsIncludeFile(paths: string[] | undefined, filePath: string): boolean {
+  if (paths == null) return true;
+  const target = normalizeFilePath(filePath);
+  return paths.some((path) => normalizeFilePath(path) === target);
+}
+
+function sameNullableStrings(left: string[] | null, right: string[] | null): boolean {
+  if (left === right) return true;
+  if (!left || !right || left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
+}
+
+function sameProjects(left: ProjectEntry[], right: ProjectEntry[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => {
+    const other = right[index];
+    return (
+      value.source === other.source &&
+      value.id === other.id &&
+      value.displayPath === other.displayPath &&
+      value.shortName === other.shortName &&
+      value.sessionCount === other.sessionCount &&
+      value.lastModified === other.lastModified &&
+      value.modelProvider === other.modelProvider &&
+      value.alias === other.alias &&
+      value.pathExists === other.pathExists &&
+      value.isVirtual === other.isVirtual
+    );
+  });
+}
+
+function sameSessions(
+  left: SessionIndexEntry[],
+  right: SessionIndexEntry[],
+): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => {
+    const other = right[index];
+    return (
+      value.source === other.source &&
+      value.sessionId === other.sessionId &&
+      value.filePath === other.filePath &&
+      value.firstPrompt === other.firstPrompt &&
+      value.threadName === other.threadName &&
+      value.messageCount === other.messageCount &&
+      value.created === other.created &&
+      value.modified === other.modified &&
+      value.gitBranch === other.gitBranch &&
+      value.projectPath === other.projectPath &&
+      value.isSidechain === other.isSidechain &&
+      value.cwd === other.cwd &&
+      value.modelProvider === other.modelProvider &&
+      value.cliVersion === other.cliVersion &&
+      value.alias === other.alias &&
+      sameNullableStrings(value.tags, other.tags) &&
+      value.status === other.status
+    );
+  });
+}
+
+function sameMessageContent(
+  left: DisplayMessage["content"][number],
+  right: DisplayMessage["content"][number],
+): boolean {
+  if (left.type !== right.type) return false;
+  switch (left.type) {
+    case "text":
+      return right.type === "text" && left.text === right.text;
+    case "thinking":
+      return right.type === "thinking" && left.thinking === right.thinking;
+    case "tool_use":
+      return (
+        right.type === "tool_use" &&
+        left.id === right.id &&
+        left.name === right.name &&
+        left.input === right.input
+      );
+    case "tool_result":
+      return (
+        right.type === "tool_result" &&
+        left.toolUseId === right.toolUseId &&
+        left.content === right.content &&
+        left.isError === right.isError
+      );
+    case "reasoning":
+      return right.type === "reasoning" && left.text === right.text;
+    case "function_call":
+      return (
+        right.type === "function_call" &&
+        left.name === right.name &&
+        left.arguments === right.arguments &&
+        left.callId === right.callId
+      );
+    case "function_call_output":
+      return (
+        right.type === "function_call_output" &&
+        left.callId === right.callId &&
+        left.output === right.output
+      );
+  }
+}
+
+function sameMessages(left: DisplayMessage[], right: DisplayMessage[]): boolean {
+  if (left === right) return true;
+  if (left.length !== right.length) return false;
+  return left.every((message, index) => {
+    const other = right[index];
+    return (
+      message.uuid === other.uuid &&
+      message.parentUuid === other.parentUuid &&
+      message.role === other.role &&
+      message.timestamp === other.timestamp &&
+      message.model === other.model &&
+      message.content.length === other.content.length &&
+      message.content.every((block, blockIndex) =>
+        sameMessageContent(block, other.content[blockIndex]),
+      )
+    );
+  });
+}
+
+async function traceMessagesRequest<T extends PaginatedMessages | RangeMessages>(
+  stage: MessageRequestStage,
+  fields: Record<string, string | number | boolean | null>,
+  request: () => Promise<T>,
+): Promise<TracedMessageResult<T>> {
+  const requestId = PERF_DIAGNOSTICS_ENABLED
+    ? nextPerfTraceId(`messages-${stage}`)
+    : "";
+  const startedAt = PERF_DIAGNOSTICS_ENABLED ? performance.now() : 0;
+  if (PERF_DIAGNOSTICS_ENABLED) {
+    recordPerfDiagnostic("messages.request_started", undefined, {
+      requestId,
+      stage,
+      ...fields,
+    });
+  }
+
+  try {
+    const result = await request();
+    const responseAt = performance.now();
+    if (PERF_DIAGNOSTICS_ENABLED) {
+      recordPerfDiagnostic("messages.ipc_roundtrip", responseAt - startedAt, {
+        requestId,
+        stage,
+        total: result.total,
+        ...getMessagesPerfFields(result.messages),
+        ...fields,
+      });
+    }
+    return { result, requestId, responseAt };
+  } catch (reason) {
+    if (PERF_DIAGNOSTICS_ENABLED) {
+      recordPerfDiagnostic("messages.request_error", performance.now() - startedAt, {
+        requestId,
+        stage,
+        errorType: reason instanceof Error ? reason.name : typeof reason,
+        ...fields,
+      });
+    }
+    throw reason;
+  }
+}
+
+function requestInitialMessages(
+  source: string,
+  filePath: string,
+): Promise<TracedMessageResult<PaginatedMessages>> {
+  const key = `${source}\u0000${normalizeFilePath(filePath)}`;
+  const existing = initialMessagesInFlight.get(key);
+  if (existing) {
+    recordPerfDiagnostic("messages.request_deduplicated", undefined, {
+      stage: "initial",
+      source,
+    });
+    return existing;
+  }
+
+  const request = traceMessagesRequest(
+    "initial",
+    { source, page: 0, pageSize: MAIN_MESSAGES_PAGE_SIZE, fromEnd: true },
+    () => api.getMessages(source, filePath, 0, MAIN_MESSAGES_PAGE_SIZE, true),
+  ).finally(() => {
+    if (initialMessagesInFlight.get(key) === request) {
+      initialMessagesInFlight.delete(key);
+    }
+  });
+  initialMessagesInFlight.set(key, request);
+  return request;
+}
 
 interface AppState {
   // Source
@@ -151,7 +374,11 @@ interface AppState {
   clearSelection: () => void;
   /** Silently refresh projects and the current session list. `rebuildProjects`
    * is reserved for the explicit manual cache refresh. */
-  refreshInBackground: (forceReload?: boolean, rebuildProjects?: boolean) => Promise<void>;
+  refreshInBackground: (
+    forceReload?: boolean,
+    rebuildProjects?: boolean,
+    context?: BackgroundRefreshContext,
+  ) => Promise<void>;
   /** Force-reload page 0 of the currently selected session's messages. Preserves user's scroll position in the viewport but rewinds state to the latest page. */
   reloadLatestMessages: () => Promise<void>;
   updateSessionMeta: (
@@ -374,21 +601,28 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   selectSession: async (filePath: string) => {
     const requestSource = get().source;
-    set({
-      selectedFilePath: filePath,
-      messagesLoading: true,
-      messages: [],
-      messagesTotal: 0,
-      loadedStart: 0,
-      loadedEnd: 0,
-      messagesHasMore: false,
-      messagesHasNewer: false,
-    });
+    const currentBeforeRequest = get();
+    const alreadyLoadingSameSession =
+      currentBeforeRequest.selectedFilePath === filePath &&
+      currentBeforeRequest.messagesLoading;
+    if (!alreadyLoadingSameSession) {
+      set({
+        selectedFilePath: filePath,
+        messagesLoading: true,
+        messages: [],
+        messagesTotal: 0,
+        loadedStart: 0,
+        loadedEnd: 0,
+        messagesHasMore: false,
+        messagesHasNewer: false,
+      });
+    }
     try {
       // Initial load: the tail window — same code path as before, just
       // with a smaller page size. The result tells us `total`, which we
       // use to seed loadedStart / loadedEnd.
-      const result = await api.getMessages(requestSource, filePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
+      const response = await requestInitialMessages(requestSource, filePath);
+      const result = response.result;
       if (
         get().source !== requestSource ||
         get().selectedFilePath !== filePath
@@ -397,6 +631,29 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       const loadedStart = Math.max(0, result.total - result.messages.length);
       const loadedEnd = result.total;
+      const current = get();
+      const unchanged =
+        sameMessages(current.messages, result.messages) &&
+        current.messagesTotal === result.total &&
+        current.loadedStart === loadedStart &&
+        current.loadedEnd === loadedEnd &&
+        current.messagesHasMore === (loadedStart > 0) &&
+        !current.messagesHasNewer;
+      if (unchanged) {
+        if (current.messagesLoading) set({ messagesLoading: false });
+        recordPerfDiagnostic("messages.store_skipped", undefined, {
+          requestId: response.requestId,
+          stage: "initial",
+          reason: "same-snapshot",
+        });
+        return;
+      }
+
+      markPendingMessageCommit({
+        requestId: response.requestId,
+        stage: "initial",
+        responseAt: response.responseAt,
+      });
       set({
         messages: result.messages,
         messagesTotal: result.total,
@@ -405,6 +662,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         messagesHasMore: loadedStart > 0,
         messagesHasNewer: false,
         messagesLoading: false,
+      });
+      recordPerfDiagnostic("messages.store_applied", undefined, {
+        requestId: response.requestId,
+        stage: "initial",
+        loadedStart,
+        loadedEnd,
+        total: result.total,
       });
     } catch (e) {
       console.error("Failed to load messages:", e);
@@ -485,12 +749,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     const requestStart = Math.max(0, requestEnd - MAIN_MESSAGES_PAGE_SIZE);
     set({ messagesLoading: true });
     try {
-      const result = await api.getMessagesRange(
-        state.source,
-        state.selectedFilePath,
-        requestStart,
-        requestEnd,
+      const response = await traceMessagesRequest(
+        "older",
+        {
+          source: state.source,
+          requestedStart: requestStart,
+          requestedEnd: requestEnd,
+        },
+        () =>
+          api.getMessagesRange(
+            state.source,
+            state.selectedFilePath!,
+            requestStart,
+            requestEnd,
+          ),
       );
+      const result = response.result;
       const current = get();
       if (
         current.source !== state.source ||
@@ -519,8 +793,18 @@ export const useAppStore = create<AppState>((set, get) => ({
           messagesHasNewer: current.loadedEnd < total,
           messagesLoading: false,
         });
+        recordPerfDiagnostic("messages.store_skipped", undefined, {
+          requestId: response.requestId,
+          stage: "older",
+          reason: "no-progress",
+        });
         return;
       }
+      markPendingMessageCommit({
+        requestId: response.requestId,
+        stage: "older",
+        responseAt: response.responseAt,
+      });
       set({
         messages: [...result.messages, ...current.messages],
         messagesTotal: total,
@@ -528,6 +812,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         messagesHasMore: newStart > 0,
         messagesHasNewer: current.loadedEnd < total,
         messagesLoading: false,
+      });
+      recordPerfDiagnostic("messages.store_applied", undefined, {
+        requestId: response.requestId,
+        stage: "older",
+        loadedStart: newStart,
+        loadedEnd: current.loadedEnd,
+        total,
       });
     } catch (e) {
       console.error("Failed to load more messages:", e);
@@ -557,12 +848,22 @@ export const useAppStore = create<AppState>((set, get) => ({
     );
     set({ messagesLoading: true });
     try {
-      const result = await api.getMessagesRange(
-        state.source,
-        state.selectedFilePath,
-        requestStart,
-        requestEnd,
+      const response = await traceMessagesRequest(
+        "newer",
+        {
+          source: state.source,
+          requestedStart: requestStart,
+          requestedEnd: requestEnd,
+        },
+        () =>
+          api.getMessagesRange(
+            state.source,
+            state.selectedFilePath!,
+            requestStart,
+            requestEnd,
+          ),
       );
+      const result = response.result;
       const current = get();
       if (
         current.source !== state.source ||
@@ -586,8 +887,18 @@ export const useAppStore = create<AppState>((set, get) => ({
           messagesHasNewer: false,
           messagesLoading: false,
         });
+        recordPerfDiagnostic("messages.store_skipped", undefined, {
+          requestId: response.requestId,
+          stage: "newer",
+          reason: "no-progress",
+        });
         return;
       }
+      markPendingMessageCommit({
+        requestId: response.requestId,
+        stage: "newer",
+        responseAt: response.responseAt,
+      });
       set({
         messages: [...current.messages, ...result.messages],
         messagesTotal: total,
@@ -595,6 +906,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         messagesHasMore: current.loadedStart > 0,
         messagesHasNewer: newEnd < total,
         messagesLoading: false,
+      });
+      recordPerfDiagnostic("messages.store_applied", undefined, {
+        requestId: response.requestId,
+        stage: "newer",
+        loadedStart: current.loadedStart,
+        loadedEnd: newEnd,
+        total,
       });
     } catch (e) {
       console.error("Failed to load newer messages:", e);
@@ -623,12 +941,22 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     set({ messagesLoading: true });
     try {
-      const result = await api.getMessagesRange(
-        state.source,
-        state.selectedFilePath,
-        requestStart,
-        requestEnd,
+      const response = await traceMessagesRequest(
+        "jump",
+        {
+          source: state.source,
+          requestedStart: requestStart,
+          requestedEnd: requestEnd,
+        },
+        () =>
+          api.getMessagesRange(
+            state.source,
+            state.selectedFilePath!,
+            requestStart,
+            requestEnd,
+          ),
       );
+      const result = response.result;
       const current = get();
       if (
         current.source !== state.source ||
@@ -637,6 +965,11 @@ export const useAppStore = create<AppState>((set, get) => ({
         return;
       }
       const newTotal = result.total;
+      markPendingMessageCommit({
+        requestId: response.requestId,
+        stage: "jump",
+        responseAt: response.responseAt,
+      });
       set({
         messages: result.messages,
         messagesTotal: newTotal,
@@ -645,6 +978,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         messagesHasMore: result.start > 0,
         messagesHasNewer: result.end < newTotal,
         messagesLoading: false,
+      });
+      recordPerfDiagnostic("messages.store_applied", undefined, {
+        requestId: response.requestId,
+        stage: "jump",
+        loadedStart: result.start,
+        loadedEnd: result.end,
+        total: newTotal,
       });
     } catch (e) {
       console.error("Failed to jump to message:", e);
@@ -783,7 +1123,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { source: currentSource, selectedFilePath } = get();
     if (!selectedFilePath) return;
     try {
-      const result = await api.getMessages(currentSource, selectedFilePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
+      const response = await traceMessagesRequest(
+        "reload",
+        {
+          source: currentSource,
+          page: 0,
+          pageSize: MAIN_MESSAGES_PAGE_SIZE,
+          fromEnd: true,
+        },
+        () =>
+          api.getMessages(
+            currentSource,
+            selectedFilePath,
+            0,
+            MAIN_MESSAGES_PAGE_SIZE,
+            true,
+          ),
+      );
+      const result = response.result;
       if (
         get().source !== currentSource ||
         get().selectedFilePath !== selectedFilePath
@@ -791,6 +1148,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         return;
       }
       const loadedStart = Math.max(0, result.total - result.messages.length);
+      const current = get();
+      const unchanged =
+        sameMessages(current.messages, result.messages) &&
+        current.messagesTotal === result.total &&
+        current.loadedStart === loadedStart &&
+        current.loadedEnd === result.total &&
+        current.messagesHasMore === (loadedStart > 0) &&
+        !current.messagesHasNewer;
+      if (unchanged) {
+        recordPerfDiagnostic("messages.store_skipped", undefined, {
+          requestId: response.requestId,
+          stage: "reload",
+          reason: "same-snapshot",
+        });
+        return;
+      }
+
+      markPendingMessageCommit({
+        requestId: response.requestId,
+        stage: "reload",
+        responseAt: response.responseAt,
+      });
       set({
         messages: result.messages,
         messagesTotal: result.total,
@@ -799,13 +1178,27 @@ export const useAppStore = create<AppState>((set, get) => ({
         messagesHasMore: loadedStart > 0,
         messagesHasNewer: false,
       });
+      recordPerfDiagnostic("messages.store_applied", undefined, {
+        requestId: response.requestId,
+        stage: "reload",
+        loadedStart,
+        loadedEnd: result.total,
+        total: result.total,
+      });
     } catch {
       // silent
     }
   },
 
-  refreshInBackground: async (forceReload = false, rebuildProjects = false) => {
+  refreshInBackground: async (
+    forceReload = false,
+    rebuildProjects = false,
+    context = {},
+  ) => {
     const { source, selectedProject } = get();
+    const reason = context.reason ?? "action";
+    const refreshStartedAt = performance.now();
+    let listsChanged = false;
     try {
       const loadProjects = rebuildProjects
         ? api.rebuildProjectsCache
@@ -835,20 +1228,57 @@ export const useAppStore = create<AppState>((set, get) => ({
         const invalidSessions = all.filter(
           (s) => (s.status ?? "valid") !== "valid",
         );
-        set({
-          sessions: validSessions,
+        const nextProjects = projects.map((project) =>
+          project.id === selectedProject &&
+          project.sessionCount !== validSessions.length
+            ? { ...project, sessionCount: validSessions.length }
+            : project,
+        );
+        const current = get();
+        const projectsChanged = !sameProjects(current.projects, nextProjects);
+        const sessionsChanged = !sameSessions(current.sessions, validSessions);
+        const invalidChanged = !sameSessions(
+          current.invalidSessions,
           invalidSessions,
-          projects: projects.map((p) =>
-            p.id === selectedProject
-              ? { ...p, sessionCount: validSessions.length }
-              : p
-          ),
-        });
+        );
+        listsChanged = projectsChanged || sessionsChanged || invalidChanged;
+        if (listsChanged) {
+          set({
+            ...(projectsChanged ? { projects: nextProjects } : {}),
+            ...(sessionsChanged ? { sessions: validSessions } : {}),
+            ...(invalidChanged ? { invalidSessions } : {}),
+          });
+        }
       } else {
-        set({ projects });
+        const current = get();
+        if (!sameProjects(current.projects, projects)) {
+          listsChanged = true;
+          set({ projects });
+        }
       }
     } catch (e) {
       console.error("Background refresh failed:", e);
+    }
+
+    recordPerfDiagnostic(
+      "background_refresh.completed",
+      performance.now() - refreshStartedAt,
+      {
+        reason,
+        source,
+        forceReload,
+        changedPaths: context.changedPaths?.length ?? null,
+        listsChanged,
+      },
+    );
+
+    if (reason === "startup") {
+      recordPerfDiagnostic("messages.refresh_skipped", undefined, {
+        stage: "background",
+        reason: "startup-list-refresh",
+        refreshReason: reason,
+      });
+      return;
     }
 
     // 静默刷新当前会话消息（仅当窗口贴在尾部，不打断用户上翻历史/跳转后正在浏览中段）
@@ -858,8 +1288,34 @@ export const useAppStore = create<AppState>((set, get) => ({
     // 调 loadMoreMessages，这里不能再发请求把 messages 覆盖回尾部窗口
     // ——否则刚加载的历史被擦掉、外层循环又重新加载，进度数字就会循环波动。
     if (!selectedFilePath || !atTail || messagesLoading) return;
+    if (!pathsIncludeFile(context.changedPaths, selectedFilePath)) {
+      recordPerfDiagnostic("messages.refresh_skipped", undefined, {
+        stage: "background",
+        reason: "unrelated-file-change",
+        refreshReason: reason,
+      });
+      return;
+    }
     try {
-      const result = await api.getMessages(currentSource, selectedFilePath, 0, MAIN_MESSAGES_PAGE_SIZE, true);
+      const response = await traceMessagesRequest(
+        "background",
+        {
+          source: currentSource,
+          page: 0,
+          pageSize: MAIN_MESSAGES_PAGE_SIZE,
+          fromEnd: true,
+          refreshReason: reason,
+        },
+        () =>
+          api.getMessages(
+            currentSource,
+            selectedFilePath,
+            0,
+            MAIN_MESSAGES_PAGE_SIZE,
+            true,
+          ),
+      );
+      const result = response.result;
       const after = get();
       if (
         after.source !== currentSource ||
@@ -869,12 +1325,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       ) {
         return;
       }
-      // 文件未增长——保持现状，特别是别动 loadedStart，避免把用户已展开的窗口擦回尾部。
-      if (result.total === after.messagesTotal) return;
       // 用户已上翻历史超出默认尾部页：只更新总数 + 标记有新消息，不替换 messages
       // ——替换会把已加载历史擦掉，又把 handleLoadAll 的循环踢回起点（进度循环波动）。
       const userExpanded = after.loadedStart < Math.max(0, after.messagesTotal - MAIN_MESSAGES_PAGE_SIZE);
       if (userExpanded) {
+        if (result.total === after.messagesTotal) {
+          recordPerfDiagnostic("messages.store_skipped", undefined, {
+            requestId: response.requestId,
+            stage: "background",
+            reason: "expanded-window-unchanged",
+          });
+          return;
+        }
         set({
           messagesTotal: result.total,
           messagesHasNewer: after.loadedEnd < result.total,
@@ -883,6 +1345,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
       // 普通的尾部追加场景（窗口本来就只有最后一页）：照旧整段替换。
       const newStart = Math.max(0, result.total - result.messages.length);
+      const unchanged =
+        sameMessages(after.messages, result.messages) &&
+        after.messagesTotal === result.total &&
+        after.loadedStart === newStart &&
+        after.loadedEnd === result.total &&
+        after.messagesHasMore === (newStart > 0) &&
+        !after.messagesHasNewer;
+      if (unchanged) {
+        recordPerfDiagnostic("messages.store_skipped", undefined, {
+          requestId: response.requestId,
+          stage: "background",
+          reason: "same-snapshot",
+        });
+        return;
+      }
+
+      markPendingMessageCommit({
+        requestId: response.requestId,
+        stage: "background",
+        responseAt: response.responseAt,
+      });
       set({
         messages: result.messages,
         messagesTotal: result.total,
@@ -890,6 +1373,13 @@ export const useAppStore = create<AppState>((set, get) => ({
         loadedEnd: result.total,
         messagesHasMore: newStart > 0,
         messagesHasNewer: false,
+      });
+      recordPerfDiagnostic("messages.store_applied", undefined, {
+        requestId: response.requestId,
+        stage: "background",
+        loadedStart: newStart,
+        loadedEnd: result.total,
+        total: result.total,
       });
     } catch {
       // 静默失败

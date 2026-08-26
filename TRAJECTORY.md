@@ -53,6 +53,12 @@ Select-String -Path target\perf\dev-*.log -Pattern '\[ASV-PERF\]'
 - `trajectory.backend_parse`：Rust 轨迹投影和分页耗时。
 - `messages.backend_parse`：消息分页扫描耗时。Tauri 桌面端在阻塞线程池中执行该扫描，因此大型会话的消息解析不会再阻塞轨迹命令。
 - `messages.range_backend_parse`：消息窗口区间扫描耗时，用于定位前后翻页触发的全量解析。
+- `messages.request_started` / `messages.ipc_roundtrip`：消息请求开始和完整 IPC 往返耗时，并记录消息数、内容块数和近似文本体积。
+- `messages.store_applied` / `messages.store_skipped`：消息快照是否实际写入 Zustand；相同快照和 StrictMode 重复请求会被跳过。
+- `messages.react_commit`：React Profiler 测得的消息树提交耗时。
+- `messages.dom_committed` / `messages.paint_ready`：消息响应到 DOM 提交、以及后续可绘制的耗时，同时携带 DOM 节点数和 JS 堆内存。
+- `watcher.refresh_dispatched` / `messages.refresh_skipped`：文件监听合并后的路径数量，以及因变更不属于当前会话而跳过消息刷新的记录。
+- `background_refresh.completed`：项目与会话后台刷新耗时，并标记返回数据是否实际改变 store。
 - `trajectory.ipc_roundtrip`：前端调用到收到完整结果的总耗时，包含后端解析、序列化、IPC 传输和前端反序列化。
 - `react.commit`：React Profiler 测得的轨迹子树渲染耗时。
 - `trajectory.dom_committed`：收到结果到 DOM 提交完成的等待时间，并携带 DOM 节点数和 JS 堆内存。
@@ -60,7 +66,7 @@ Select-String -Path target\perf\dev-*.log -Pattern '\[ASV-PERF\]'
 - `browser.long_task`：WebView 主线程中超过 50ms 的长任务。
 - `browser.event_loop_lag`：可见窗口中的事件循环延迟超过 100ms。
 
-`fields` 中的 `detailChars` 和 `approximateTextMb` 用于判断大段 `input/output` 是否造成 IPC 或内存压力；`documentNodes`、`rootNodes` 和 `usedHeapMb` 用于判断 DOM 与垃圾回收压力。React StrictMode 在开发模式可能发起两次相同请求，使用事件中的 `requestId`、`stage` 和时间戳区分即可。
+`fields` 中的 `detailChars`、`textChars` 和 `approximateTextMb` 用于判断大段 `input/output` 或消息正文是否造成 IPC 与内存压力；`documentNodes`、`rootNodes` 和 `usedHeapMb` 用于判断 DOM 与垃圾回收压力。轨迹请求在 React StrictMode 下仍可能出现两次；消息首次请求通过 in-flight 合并，只会执行一次后端读取，并以 `messages.request_deduplicated` 记录被合并的调用。
 
 ## 归属
 
