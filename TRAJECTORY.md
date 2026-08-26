@@ -36,7 +36,7 @@ GET /api/trajectory?source=codex&filePath=<url-encoded-rollout-path>&maxRecords=
 
 当前轨迹接口只接受 `codex` 数据源。`fast=true` 请求快速尾部页；未传或为 `false` 时请求完整投影。`maxRecords` 默认 500，服务端限制为 50 到 1000；不传 `beforeRecord` 时返回最近一页，继续向前加载时传入上一页的 `pagination.nextBeforeRecord`。完整页中 `record.index` 是稳定序号，相邻页不会重叠；`stats.records` 表示全会话记录总数，`stats.visibleRecords` 表示当前响应条数。快速页的序号和统计只在当前片段内有效，不能直接与完整页合并。
 
-前端每页加载 200 条记录，按稳定序号合并早期页面，并支持在已加载范围内搜索 `event`、`summary`、`input`、`output`，以及按记录类型筛选。后续如要支持实时尾部更新，应在此模型上增加 revision/cursor，而不是复用消息分页接口。
+前端每页加载 80 条记录，按稳定序号合并早期页面，并支持在已加载范围内搜索 `event`、`summary`、`input`、`output`，以及按记录类型筛选。轨迹模式使用带布局/绘制隔离的独立原生滚动容器，不触发消息分页、位置百分比和滚动按钮状态计算；后台完整结果通过低优先级 React transition 提交，耗时轴与 Turn 区块复用未变化的渲染结果。Turn 默认折叠，离屏区块使用 `content-visibility` 延迟布局和绘制，避免大轨迹首屏一次挂载过多记录行。后续如要支持实时尾部更新，应在此模型上增加 revision/cursor，而不是复用消息分页接口。
 
 ## 归属
 

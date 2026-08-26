@@ -1321,12 +1321,20 @@ export function MessagesPage() {
                     : "min-h-[28rem] max-h-[70vh] min-w-0 shrink-0"
               }`}
             >
-              <ScrollArea
-                className="flex-1 min-h-0"
-                viewportRef={containerRef}
-                onViewportScroll={handleScroll}
-                viewportClassName="h-full"
-              >
+              {viewMode === "trajectory" ? (
+                <div
+                  className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
+                  style={{ contain: "strict" }}
+                >
+                  <TrajectoryView source={source} filePath={filePath} />
+                </div>
+              ) : (
+                <ScrollArea
+                  className="flex-1 min-h-0"
+                  viewportRef={containerRef}
+                  onViewportScroll={handleScroll}
+                  viewportClassName="h-full"
+                >
                 {viewMode === "messages" && firstUserAnchor && (
                   <button
                     type="button"
@@ -1366,9 +1374,7 @@ export function MessagesPage() {
                     — 会话开始 —
                   </div>
                 )}
-                {viewMode === "trajectory" ? (
-                  <TrajectoryView source={source} filePath={filePath} />
-                ) : viewMode === "thread" ? (
+                {viewMode === "thread" ? (
                   <ThreadSummaryView
                     messages={displayedMessages}
                     source={source}
@@ -1429,7 +1435,8 @@ export function MessagesPage() {
                   </div>
                 )}
                 <div ref={bottomRef} />
-              </ScrollArea>
+                </ScrollArea>
+              )}
             </div>
 
             {splitFilePaths.map((splitPath) => (

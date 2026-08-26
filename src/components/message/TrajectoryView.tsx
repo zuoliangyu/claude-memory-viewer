@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, startTransition, useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -29,7 +29,7 @@ const RECORD_KIND_LABELS: Record<string, string> = {
   subagent: "子 Agent",
   compaction: "上下文压缩",
 };
-const TRAJECTORY_PAGE_SIZE = 200;
+const TRAJECTORY_PAGE_SIZE = 80;
 
 function mergeTrajectory(current: Trajectory, earlier: Trajectory): Trajectory {
   const records = Array.from(
@@ -239,7 +239,11 @@ function statusClass(status: string): string {
   return "text-muted-foreground";
 }
 
-function TimingOverview({ records }: { records: TrajectoryRecord[] }) {
+const TimingOverview = memo(function TimingOverview({
+  records,
+}: {
+  records: TrajectoryRecord[];
+}) {
   const timed = records
     .map((record) => {
       const start = new Date(
@@ -290,7 +294,7 @@ function TimingOverview({ records }: { records: TrajectoryRecord[] }) {
       </div>
     </section>
   );
-}
+});
 
 function RecordRow({
   record,
@@ -375,23 +379,27 @@ function DetailBlock({
   );
 }
 
-function TurnBlock({
+const TurnBlock = memo(function TurnBlock({
   turn,
   records,
-  defaultOpen,
 }: {
   turn: Trajectory["turns"][number];
   records: TrajectoryRecord[];
-  defaultOpen: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
   const selectedRecord =
     selected == null
       ? null
       : (records.find((record) => record.index === selected) ?? null);
   return (
-    <section className="border-b border-border last:border-b-0">
+    <section
+      className="border-b border-border last:border-b-0"
+      style={{
+        contentVisibility: "auto",
+        containIntrinsicSize: "auto 48px",
+      }}
+    >
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -450,7 +458,7 @@ function TurnBlock({
       )}
     </section>
   );
-}
+});
 
 export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
   const [trajectory, setTrajectory] = useState<Trajectory | null>(null);
@@ -494,7 +502,9 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
             filePath,
             TRAJECTORY_PAGE_SIZE,
           );
-          if (!cancelled) setTrajectory(fullResult);
+          if (!cancelled) {
+            startTransition(() => setTrajectory(fullResult));
+          }
         } catch (reason: unknown) {
           if (!cancelled) {
             setEnrichmentError(
@@ -742,9 +752,6 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
                 key={turn.index}
                 turn={turn}
                 records={recordsByTurn.get(turn.index) ?? []}
-                defaultOpen={
-                  turn.index === visibleTurns[visibleTurns.length - 1]?.index
-                }
               />
             ))
           )}
