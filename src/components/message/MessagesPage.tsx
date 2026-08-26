@@ -1,4 +1,12 @@
-import { memo, useEffect, useMemo, useRef, useCallback, useState } from "react";
+import {
+  Profiler,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
@@ -25,6 +33,10 @@ import { useReplyNotification } from "../../hooks/useReplyNotification";
 import { SessionCostBadge } from "./SessionCostBadge";
 import { TrajectoryView } from "./TrajectoryView";
 import { isRemoteNodeActive } from "../../services/nodeConfig";
+import {
+  PERF_DIAGNOSTICS_ENABLED,
+  recordPerfProfilerRender,
+} from "../../utils/perfDiagnostics";
 
 declare const __IS_TAURI__: boolean;
 const USE_TAURI_TRANSPORT = __IS_TAURI__ && !isRemoteNodeActive();
@@ -1326,7 +1338,16 @@ export function MessagesPage() {
                   className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
                   style={{ contain: "strict" }}
                 >
-                  <TrajectoryView source={source} filePath={filePath} />
+                  {PERF_DIAGNOSTICS_ENABLED ? (
+                    <Profiler
+                      id="TrajectoryView"
+                      onRender={recordPerfProfilerRender}
+                    >
+                      <TrajectoryView source={source} filePath={filePath} />
+                    </Profiler>
+                  ) : (
+                    <TrajectoryView source={source} filePath={filePath} />
+                  )}
                 </div>
               ) : (
                 <ScrollArea

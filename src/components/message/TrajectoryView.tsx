@@ -1,4 +1,13 @@
-import { memo, startTransition, useEffect, useMemo, useState } from "react";
+import {
+  memo,
+  startTransition,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   AlertTriangle,
   ChevronDown,
@@ -15,6 +24,12 @@ import type {
   TrajectoryRecord,
   TrajectoryTokenUsage,
 } from "../../types";
+import {
+  PERF_DIAGNOSTICS_ENABLED,
+  getBrowserPerfSnapshot,
+  nextPerfTraceId,
+  recordPerfDiagnostic,
+} from "../../utils/perfDiagnostics";
 
 interface TrajectoryViewProps {
   source: string;
@@ -30,6 +45,35 @@ const RECORD_KIND_LABELS: Record<string, string> = {
   compaction: "上下文压缩",
 };
 const TRAJECTORY_PAGE_SIZE = 80;
+
+type TrajectoryRequestStage = "fast" | "full" | "earlier";
+
+interface PendingTrajectoryCommit {
+  requestId: string;
+  stage: TrajectoryRequestStage;
+  responseAt: number;
+}
+
+function getTrajectoryPerfFields(trajectory: Trajectory) {
+  let detailChars = 0;
+  let summaryChars = 0;
+  for (const record of trajectory.records) {
+    detailChars += (record.input?.length ?? 0) + (record.output?.length ?? 0);
+    summaryChars += record.summary.length;
+  }
+
+  return {
+    records: trajectory.records.length,
+    turns: trajectory.turns.length,
+    totalRecords: trajectory.stats.records,
+    detailChars,
+    summaryChars,
+    approximateTextMb:
+      Math.round(((detailChars + summaryChars) * 2 * 100) / 1024 / 1024) /
+      100,
+    complete: trajectory.pagination.complete,
+  };
+}
 
 function mergeTrajectory(current: Trajectory, earlier: Trajectory): Trajectory {
   const records = Array.from(
@@ -461,6 +505,8 @@ const TurnBlock = memo(function TurnBlock({
 });
 
 export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pendingCommitRef = useRef<PendingTrajectoryCommit | null>(null);
   const [trajectory, setTrajectory] = useState<Trajectory | null>(null);
   const [loading, setLoading] = useState(true);
   const [enriching, setEnriching] = useState(false);
@@ -470,6 +516,59 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
   const [pagingError, setPagingError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("all");
+
+  const requestTrajectory = useCallback(
+    async (
+      stage: TrajectoryRequestStage,
+      beforeRecord?: number,
+      fast = false,
+    ) => {
+      const requestId = nextPerfTraceId(`trajectory-${stage}`);
+      const startedAt = performance.now();
+      recordPerfDiagnostic("trajectory.request_started", undefined, {
+        requestId,
+        stage,
+        fast,
+        maxRecords: TRAJECTORY_PAGE_SIZE,
+        beforeRecord: beforeRecord ?? null,
+      });
+
+      try {
+        const result = await api.getTrajectory(
+          source,
+          filePath,
+          TRAJECTORY_PAGE_SIZE,
+          beforeRecord,
+          fast,
+        );
+        const responseAt = performance.now();
+        recordPerfDiagnostic(
+          "trajectory.ipc_roundtrip",
+          responseAt - startedAt,
+          {
+            requestId,
+            stage,
+            fast,
+            ...getTrajectoryPerfFields(result),
+          },
+        );
+        return { result, requestId, responseAt };
+      } catch (reason: unknown) {
+        recordPerfDiagnostic(
+          "trajectory.request_error",
+          performance.now() - startedAt,
+          {
+            requestId,
+            stage,
+            fast,
+            errorType: reason instanceof Error ? reason.name : typeof reason,
+          },
+        );
+        throw reason;
+      }
+    },
+    [filePath, source],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -483,27 +582,28 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
     setKind("all");
     const load = async () => {
       try {
-        const fastResult = await api.getTrajectory(
-          source,
-          filePath,
-          TRAJECTORY_PAGE_SIZE,
-          undefined,
-          true,
-        );
+        const fastResponse = await requestTrajectory("fast", undefined, true);
         if (cancelled) return;
+        const fastResult = fastResponse.result;
+        pendingCommitRef.current = {
+          requestId: fastResponse.requestId,
+          stage: "fast",
+          responseAt: fastResponse.responseAt,
+        };
         setTrajectory(fastResult);
         setLoading(false);
 
         if (fastResult.pagination.complete) return;
         setEnriching(true);
         try {
-          const fullResult = await api.getTrajectory(
-            source,
-            filePath,
-            TRAJECTORY_PAGE_SIZE,
-          );
+          const fullResponse = await requestTrajectory("full");
           if (!cancelled) {
-            startTransition(() => setTrajectory(fullResult));
+            pendingCommitRef.current = {
+              requestId: fullResponse.requestId,
+              stage: "full",
+              responseAt: fullResponse.responseAt,
+            };
+            startTransition(() => setTrajectory(fullResponse.result));
           }
         } catch (reason: unknown) {
           if (!cancelled) {
@@ -526,7 +626,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
     return () => {
       cancelled = true;
     };
-  }, [filePath, source]);
+  }, [requestTrajectory]);
 
   const availableKinds = useMemo(
     () =>
@@ -563,6 +663,47 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
     [recordsByTurn, trajectory],
   );
 
+  useLayoutEffect(() => {
+    if (!PERF_DIAGNOSTICS_ENABLED || !trajectory || !rootRef.current) return;
+
+    const root = rootRef.current;
+    const pendingCommit = pendingCommitRef.current;
+    pendingCommitRef.current = null;
+    const committedAt = performance.now();
+    const commonFields = {
+      requestId: pendingCommit?.requestId ?? null,
+      stage: pendingCommit?.stage ?? "state-update",
+      ...getTrajectoryPerfFields(trajectory),
+      ...getBrowserPerfSnapshot(root),
+    };
+
+    recordPerfDiagnostic(
+      "trajectory.dom_committed",
+      pendingCommit ? committedAt - pendingCommit.responseAt : undefined,
+      commonFields,
+    );
+
+    let secondFrame = 0;
+    const firstFrame = requestAnimationFrame(() => {
+      secondFrame = requestAnimationFrame(() => {
+        if (!root.isConnected) return;
+        recordPerfDiagnostic(
+          "trajectory.paint_ready",
+          performance.now() - committedAt,
+          {
+            ...commonFields,
+            ...getBrowserPerfSnapshot(root),
+          },
+        );
+      });
+    });
+
+    return () => {
+      cancelAnimationFrame(firstFrame);
+      if (secondFrame) cancelAnimationFrame(secondFrame);
+    };
+  }, [trajectory]);
+
   const loadEarlier = async () => {
     if (
       !trajectory?.pagination.complete ||
@@ -573,14 +714,19 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
     setLoadingEarlier(true);
     setPagingError(null);
     try {
-      const earlier = await api.getTrajectory(
-        source,
-        filePath,
-        TRAJECTORY_PAGE_SIZE,
+      const earlierResponse = await requestTrajectory(
+        "earlier",
         trajectory.pagination.nextBeforeRecord,
       );
+      pendingCommitRef.current = {
+        requestId: earlierResponse.requestId,
+        stage: "earlier",
+        responseAt: earlierResponse.responseAt,
+      };
       setTrajectory((current) =>
-        current ? mergeTrajectory(current, earlier) : earlier,
+        current
+          ? mergeTrajectory(current, earlierResponse.result)
+          : earlierResponse.result,
       );
     } catch (reason: unknown) {
       setPagingError(reason instanceof Error ? reason.message : String(reason));
@@ -606,7 +752,7 @@ export function TrajectoryView({ source, filePath }: TrajectoryViewProps) {
   if (!trajectory) return null;
 
   return (
-    <div className="p-3 sm:p-4">
+    <div ref={rootRef} className="p-3 sm:p-4">
       <div className="mx-auto max-w-6xl space-y-3">
         <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
           <div className="min-w-0">

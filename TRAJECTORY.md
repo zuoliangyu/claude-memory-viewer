@@ -38,6 +38,30 @@ GET /api/trajectory?source=codex&filePath=<url-encoded-rollout-path>&maxRecords=
 
 前端每页加载 80 条记录，按稳定序号合并早期页面，并支持在已加载范围内搜索 `event`、`summary`、`input`、`output`，以及按记录类型筛选。轨迹模式使用带布局/绘制隔离的独立原生滚动容器，不触发消息分页、位置百分比和滚动按钮状态计算；后台完整结果通过低优先级 React transition 提交，耗时轴与 Turn 区块复用未变化的渲染结果。Turn 默认折叠，离屏区块使用 `content-visibility` 延迟布局和绘制，避免大轨迹首屏一次挂载过多记录行。后续如要支持实时尾部更新，应在此模型上增加 revision/cursor，而不是复用消息分页接口。
 
+## 开发性能诊断
+
+通过 `./dev.ps1` 启动桌面应用时会自动启用性能诊断，并将终端输出同时保存到 `target/perf/dev-<时间>.log`。直接运行 `npx tauri dev`、Web 开发模式和正式构建均不会启用该诊断。Rust 端还使用 `debug_assertions` 做二次限制，正式构建即使被设置同名环境变量也不会接受前端性能事件。
+
+复现卡顿后，可用以下命令提取时间线：
+
+```powershell
+Select-String -Path target\perf\dev-*.log -Pattern '\[ASV-PERF\]'
+```
+
+每行在 `[ASV-PERF]` 后输出一个 JSON 事件，不包含会话正文或完整文件路径。主要事件如下：
+
+- `trajectory.backend_parse`：Rust 轨迹投影和分页耗时。
+- `messages.backend_parse`：消息分页扫描耗时。Tauri 桌面端在阻塞线程池中执行该扫描，因此大型会话的消息解析不会再阻塞轨迹命令。
+- `messages.range_backend_parse`：消息窗口区间扫描耗时，用于定位前后翻页触发的全量解析。
+- `trajectory.ipc_roundtrip`：前端调用到收到完整结果的总耗时，包含后端解析、序列化、IPC 传输和前端反序列化。
+- `react.commit`：React Profiler 测得的轨迹子树渲染耗时。
+- `trajectory.dom_committed`：收到结果到 DOM 提交完成的等待时间，并携带 DOM 节点数和 JS 堆内存。
+- `trajectory.paint_ready`：DOM 提交后经过两个动画帧的可绘制时间。
+- `browser.long_task`：WebView 主线程中超过 50ms 的长任务。
+- `browser.event_loop_lag`：可见窗口中的事件循环延迟超过 100ms。
+
+`fields` 中的 `detailChars` 和 `approximateTextMb` 用于判断大段 `input/output` 是否造成 IPC 或内存压力；`documentNodes`、`rootNodes` 和 `usedHeapMb` 用于判断 DOM 与垃圾回收压力。React StrictMode 在开发模式可能发起两次相同请求，使用事件中的 `requestId`、`stage` 和时间戳区分即可。
+
 ## 归属
 
 本功能参考 [icesixgod/codex-trajectory](https://github.com/icesixgod/codex-trajectory) 的公开事件投影与 `history_base` 语义，未引入其 Python runtime、MCP 代码或 UI 资产；该项目采用 MIT License，完整声明见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
