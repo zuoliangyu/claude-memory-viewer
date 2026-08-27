@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAppStore } from "../../stores/appStore";
 import { useChatStore } from "../../stores/chatStore";
@@ -49,10 +49,124 @@ import {
   FolderX,
   Repeat,
   Sparkles,
+  ChevronDown,
 } from "lucide-react";
 
 declare const __IS_TAURI__: boolean;
 declare const __APP_VERSION__: string;
+
+type SessionSource = "claude" | "codex" | "grok";
+
+const SOURCE_OPTIONS = [
+  {
+    id: "claude",
+    label: "Claude",
+    icon: Bot,
+    iconClass: "text-orange-500",
+    activeClass: "bg-orange-500/10 text-orange-600 dark:text-orange-400",
+  },
+  {
+    id: "codex",
+    label: "Codex",
+    icon: Terminal,
+    iconClass: "text-green-500",
+    activeClass: "bg-green-500/10 text-green-700 dark:text-green-400",
+  },
+  {
+    id: "grok",
+    label: "Grok",
+    icon: Sparkles,
+    iconClass: "text-purple-500",
+    activeClass: "bg-purple-500/10 text-purple-700 dark:text-purple-400",
+  },
+] as const;
+
+function SourceSelector({
+  source,
+  loading,
+  onChange,
+}: {
+  source: SessionSource;
+  loading: boolean;
+  onChange: (source: SessionSource) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const active = SOURCE_OPTIONS.find((option) => option.id === source) ?? SOURCE_OPTIONS[0];
+  const ActiveIcon = active.icon;
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnPointerDown = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnPointerDown);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnPointerDown);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        className="flex h-10 w-full items-center gap-2 rounded-md border border-border bg-background px-2.5 text-left shadow-sm transition-colors hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded ${active.activeClass}`}>
+          <ActiveIcon className="h-3.5 w-3.5" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
+          {active.label}
+        </span>
+        {loading ? (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" aria-label="正在加载项目" />
+        ) : (
+          <ChevronDown
+            className={`h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+          />
+        )}
+      </button>
+
+      {open && (
+        <div
+          role="listbox"
+          aria-label="会话数据源"
+          className="absolute inset-x-0 top-full z-50 mt-1 overflow-hidden rounded-md border border-border bg-card p-1 text-card-foreground shadow-lg"
+        >
+          {SOURCE_OPTIONS.map((option) => {
+            const Icon = option.icon;
+            const selected = option.id === source;
+            return (
+              <button
+                type="button"
+                role="option"
+                aria-selected={selected}
+                key={option.id}
+                onClick={() => {
+                  onChange(option.id);
+                  setOpen(false);
+                }}
+                className={`flex h-9 w-full items-center gap-2 rounded px-2 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? option.activeClass : "text-foreground"}`}
+              >
+                <Icon className={`h-4 w-4 shrink-0 ${option.iconClass}`} />
+                <span className="flex-1 text-left">{option.label}</span>
+                {selected && <Check className="h-3.5 w-3.5 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Sidebar() {
   const navigate = useNavigate();
@@ -115,7 +229,7 @@ export function Sidebar() {
     location.pathname === "/direct-chat" ||
     location.pathname.startsWith(`/projects/${encodeURIComponent("<codex-direct>/")}`);
 
-  const handleSourceChange = (s: "claude" | "codex" | "grok") => {
+  const handleSourceChange = (s: SessionSource) => {
     if (s !== source) {
       setSource(s);
       navigate("/projects");
@@ -130,42 +244,11 @@ export function Sidebar() {
           AI Session Viewer
         </h1>
         <NodeSelector />
-        {/* Source Tabs */}
-        <div className="flex rounded-lg bg-muted p-0.5">
-          <button
-            onClick={() => handleSourceChange("claude")}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              source === "claude"
-                ? "bg-orange-500/20 text-orange-400 shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Bot className="w-3.5 h-3.5" />
-            Claude
-          </button>
-          <button
-            onClick={() => handleSourceChange("codex")}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              source === "codex"
-                ? "bg-green-500/20 text-green-400 shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            Codex
-          </button>
-          <button
-            onClick={() => handleSourceChange("grok")}
-            className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
-              source === "grok"
-                ? "bg-purple-500/20 text-purple-400 shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5" />
-            Grok
-          </button>
-        </div>
+        <SourceSelector
+          source={source}
+          loading={projectsLoading}
+          onChange={handleSourceChange}
+        />
       </div>
 
       {/* Navigation */}
@@ -284,7 +367,7 @@ export function Sidebar() {
         {/* Projects list */}
         <div>
           <h2 className="px-3 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-            项目 ({sidebarProjects.length})
+            项目 ({projectsLoading ? "..." : sidebarProjects.length})
           </h2>
           {projectsLoading ? (
             <div className="px-3 py-2 text-sm text-muted-foreground">

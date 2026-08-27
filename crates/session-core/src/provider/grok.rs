@@ -2,7 +2,9 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
+use parking_lot::Mutex;
 use serde_json::Value;
 
 use crate::models::message::{
@@ -13,6 +15,11 @@ use crate::models::session::{SessionIndexEntry, SessionStatus};
 
 const CHAT_HISTORY_FILE: &str = "chat_history.jsonl";
 const UNROOTED_PROJECT: &str = "<grok-unrooted>";
+
+fn sessions_cache() -> &'static Mutex<Option<Vec<SessionIndexEntry>>> {
+    static CACHE: OnceLock<Mutex<Option<Vec<SessionIndexEntry>>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(None))
+}
 
 pub struct SessionMeta {
     pub id: String,
@@ -151,11 +158,14 @@ pub fn count_messages(path: &Path) -> u32 {
 fn session_entry(dir: &Path) -> Option<SessionIndexEntry> {
     let summary: Value =
         serde_json::from_str(&fs::read_to_string(dir.join("summary.json")).ok()?).ok()?;
-    let meta = extract_session_meta(&dir.join(CHAT_HISTORY_FILE))?;
+    let info = summary.get("info")?;
+    let session_id = info.get("id")?.as_str()?.to_string();
+    let cwd = info
+        .get("cwd")
+        .and_then(Value::as_str)
+        .map(ToString::to_string);
     let file_path = dir.join(CHAT_HISTORY_FILE);
 
-    // ponytail: Grok histories are parsed once per listing; add the shared LRU only if large
-    // histories make project navigation measurably slow.
     let messages = parse_all_messages(&file_path).unwrap_or_default();
     let message_count = text_message_count(&messages);
     let first_prompt = messages.iter().find_map(|message| {
@@ -170,7 +180,7 @@ fn session_entry(dir: &Path) -> Option<SessionIndexEntry> {
 
     Some(SessionIndexEntry {
         source: "grok".to_string(),
-        session_id: meta.id,
+        session_id,
         file_path: file_path.to_string_lossy().into_owned(),
         first_prompt,
         thread_name: summary
@@ -188,9 +198,9 @@ fn session_entry(dir: &Path) -> Option<SessionIndexEntry> {
             .and_then(Value::as_str)
             .map(ToString::to_string),
         git_branch: None,
-        project_path: meta.cwd.clone(),
+        project_path: cwd.clone(),
         is_sidechain: None,
-        cwd: meta.cwd,
+        cwd,
         model_provider: summary
             .get("current_model_id")
             .and_then(Value::as_str)
@@ -206,23 +216,46 @@ fn session_entry(dir: &Path) -> Option<SessionIndexEntry> {
     })
 }
 
-pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
-    let mut grouped: BTreeMap<String, Vec<SessionIndexEntry>> = BTreeMap::new();
-    for dir in session_dirs() {
-        if let Some(entry) = session_entry(&dir) {
-            grouped
-                .entry(
-                    entry
-                        .cwd
-                        .clone()
-                        .unwrap_or_else(|| UNROOTED_PROJECT.to_string()),
-                )
-                .or_default()
-                .push(entry);
-        }
+fn scan_all_sessions() -> Vec<SessionIndexEntry> {
+    session_dirs()
+        .iter()
+        .filter_map(|dir| session_entry(dir))
+        .collect()
+}
+
+fn load_all_sessions() -> Vec<SessionIndexEntry> {
+    let mut cache = sessions_cache().lock();
+    if let Some(sessions) = cache.as_ref() {
+        return sessions.clone();
     }
 
-    Ok(grouped
+    let sessions = scan_all_sessions();
+    *cache = Some(sessions.clone());
+    sessions
+}
+
+fn rebuild_all_sessions() -> Vec<SessionIndexEntry> {
+    let mut cache = sessions_cache().lock();
+    let sessions = scan_all_sessions();
+    *cache = Some(sessions.clone());
+    sessions
+}
+
+fn projects_from_sessions(sessions: Vec<SessionIndexEntry>) -> Vec<ProjectEntry> {
+    let mut grouped: BTreeMap<String, Vec<SessionIndexEntry>> = BTreeMap::new();
+    for entry in sessions {
+        grouped
+            .entry(
+                entry
+                    .cwd
+                    .clone()
+                    .unwrap_or_else(|| UNROOTED_PROJECT.to_string()),
+            )
+            .or_default()
+            .push(entry);
+    }
+
+    grouped
         .into_iter()
         .map(|(id, sessions)| {
             let short_name = Path::new(&id)
@@ -247,25 +280,28 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
                 is_virtual: id == UNROOTED_PROJECT,
             }
         })
-        .collect())
+        .collect()
+}
+
+pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
+    Ok(projects_from_sessions(load_all_sessions()))
 }
 
 pub fn refresh_projects_cache() -> Result<Vec<ProjectEntry>, String> {
-    get_projects()
+    Ok(projects_from_sessions(rebuild_all_sessions()))
 }
 
 pub fn rebuild_projects_cache() -> Result<Vec<ProjectEntry>, String> {
-    get_projects()
+    refresh_projects_cache()
 }
 
-// Grok currently has no provider-local cache. Keep the common lifecycle hook so
-// callers do not need a Grok-only branch when a cache is introduced later.
-pub fn invalidate_sessions_cache() {}
+pub fn invalidate_sessions_cache() {
+    *sessions_cache().lock() = None;
+}
 
 pub fn get_sessions(project_id: &str) -> Result<Vec<SessionIndexEntry>, String> {
-    let mut sessions: Vec<_> = session_dirs()
-        .iter()
-        .filter_map(|dir| session_entry(dir))
+    let mut sessions: Vec<_> = load_all_sessions()
+        .into_iter()
         .filter(|entry| entry.cwd.as_deref().unwrap_or(UNROOTED_PROJECT) == project_id)
         .collect();
     sessions.sort_by(|left, right| right.modified.cmp(&left.modified));
@@ -273,6 +309,8 @@ pub fn get_sessions(project_id: &str) -> Result<Vec<SessionIndexEntry>, String> 
 }
 
 pub fn refresh_sessions_cache(project_id: &str) -> Result<Vec<SessionIndexEntry>, String> {
+    // Project refresh and file watchers rebuild/invalidate the shared snapshot.
+    // Reuse it here so one frontend refresh cycle never parses every history twice.
     get_sessions(project_id)
 }
 
@@ -320,6 +358,8 @@ pub fn delete_project(project_id: &str) -> Result<super::claude::DeleteResult, S
             let _ = crate::metadata::remove_session_meta("grok", project_id, &session.session_id);
         }
     }
+
+    invalidate_sessions_cache();
 
     Ok(super::claude::DeleteResult {
         sessions_deleted,

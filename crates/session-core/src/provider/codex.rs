@@ -45,6 +45,10 @@ use crate::state::{
 // against the sessions directory once per process. This picks up rollout files
 // created, changed or deleted while AI Session Viewer was not running.
 const DISK_CACHE_VERSION: u32 = 8;
+// Session entries before v1 marked every existing rollout as valid. Keep this
+// separate from the file-index version so upgrading only drops derived session
+// lists instead of forcing an expensive full metadata re-index.
+const SESSION_CACHE_VERSION: u32 = 1;
 
 /// Sentinel prefix for project IDs synthesized from sessions with no cwd.
 /// Format: `<codex-unrooted>/YYYY-MM-DD`. The angle brackets are invalid in
@@ -114,6 +118,8 @@ fn direct_chat_date(fm: &CodexFileMeta) -> Option<String> {
 #[serde(rename_all = "camelCase")]
 struct CodexDiskCache {
     version: u32,
+    #[serde(default)]
+    session_cache_version: u32,
     #[serde(default)]
     projects: Option<CachedProjects>,
     #[serde(default)]
@@ -187,6 +193,11 @@ fn read_disk_cache() -> CodexDiskCache {
         return CodexDiskCache::default();
     }
 
+    if cache.session_cache_version != SESSION_CACHE_VERSION {
+        cache.session_cache_version = SESSION_CACHE_VERSION;
+        cache.sessions_by_project.clear();
+    }
+
     if let Some(index) = cache.file_index.take() {
         let (index, changed) = reconcile_file_index(index, scan_all_session_files());
         cache.file_index = Some(index);
@@ -227,6 +238,7 @@ fn store_projects(entries: &[ProjectEntry]) {
     let cache = {
         let mut cache = cache_state().lock();
         cache.version = DISK_CACHE_VERSION;
+        cache.session_cache_version = SESSION_CACHE_VERSION;
         cache.projects = Some(CachedProjects {
             entries: entries.to_vec(),
         });
@@ -251,6 +263,7 @@ fn store_file_index(index: &[CodexFileMeta]) {
     let cache = {
         let mut cache = cache_state().lock();
         cache.version = DISK_CACHE_VERSION;
+        cache.session_cache_version = SESSION_CACHE_VERSION;
         cache.file_index = Some(index.to_vec());
         cache.clone()
     };
@@ -261,6 +274,7 @@ fn store_project_sessions(cwd: &str, entries: &[SessionIndexEntry]) {
     let cache = {
         let mut cache = cache_state().lock();
         cache.version = DISK_CACHE_VERSION;
+        cache.session_cache_version = SESSION_CACHE_VERSION;
         cache.sessions_by_project.insert(
             cwd.to_string(),
             CachedSessions {
@@ -544,6 +558,17 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
 struct SessionFileScan {
     first_prompt: Option<String>,
     message_count: u32,
+    has_visible_activity: bool,
+}
+
+impl SessionFileScan {
+    fn status(&self) -> SessionStatus {
+        if self.has_visible_activity {
+            SessionStatus::Valid
+        } else {
+            SessionStatus::Empty
+        }
+    }
 }
 
 /// Read a session JSONL file once and extract meta + first_prompt + message count.
@@ -554,6 +579,7 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
             return SessionFileScan {
                 first_prompt: None,
                 message_count: 0,
+                has_visible_activity: false,
             }
         }
     };
@@ -561,6 +587,7 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
 
     let mut first_prompt: Option<String> = None;
     let mut message_count: u32 = 0;
+    let mut has_visible_activity = false;
     let mut meta_found = false;
 
     for line in reader.lines() {
@@ -584,6 +611,7 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
                 && !trimmed.contains("\"system\"")
             {
                 message_count += 1;
+                has_visible_activity = true;
             }
             continue;
         }
@@ -606,29 +634,30 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
                 if payload_type == "message" {
                     let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("");
                     if role != "developer" && role != "system" {
-                        message_count += 1;
                         if first_prompt.is_none() && role == "user" {
-                            if let Some(content) =
-                                payload.get("content").and_then(|c| c.as_array())
-                            {
-                                for item in content {
-                                    let item_type =
-                                        item.get("type").and_then(|v| v.as_str()).unwrap_or("");
-                                    if item_type == "input_text" || item_type == "text" {
-                                        if let Some(text) =
-                                            item.get("text").and_then(|v| v.as_str())
-                                        {
-                                            if !text.is_empty() {
-                                                first_prompt =
-                                                    Some(truncate_string(text, 200));
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                            first_prompt = extract_first_prompt_text(payload)
+                                .map(|text| truncate_string(&text, 200));
+                        }
+                        if !extract_message_content(payload).is_empty() {
+                            message_count += 1;
+                            has_visible_activity = true;
                         }
                     }
+                } else if payload_type == "function_call"
+                    && payload
+                        .get("name")
+                        .and_then(|value| value.as_str())
+                        .is_some_and(|name| !name.trim().is_empty())
+                {
+                    has_visible_activity = true;
+                } else if payload_type == "function_call_output"
+                    && payload.get("output").is_some_and(value_has_visible_content)
+                {
+                    has_visible_activity = true;
+                } else if payload_type == "reasoning"
+                    && extract_reasoning_text(payload).is_some_and(|text| !text.trim().is_empty())
+                {
+                    has_visible_activity = true;
                 }
             }
         }
@@ -637,95 +666,8 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
     SessionFileScan {
         first_prompt,
         message_count,
+        has_visible_activity,
     }
-}
-
-#[derive(Default)]
-struct SessionVisibilityScan {
-    first_prompt: Option<String>,
-    message_count: u32,
-    has_visible_activity: bool,
-}
-
-fn scan_session_visibility(path: &Path) -> SessionVisibilityScan {
-    let file = match fs::File::open(path) {
-        Ok(f) => f,
-        Err(_) => return SessionVisibilityScan::default(),
-    };
-    let reader = BufReader::new(file);
-
-    let mut scan = SessionVisibilityScan::default();
-
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        let row: Value = match serde_json::from_str(trimmed) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        if row.get("type").and_then(|v| v.as_str()) != Some("response_item") {
-            continue;
-        }
-
-        let Some(payload) = row.get("payload") else {
-            continue;
-        };
-
-        let payload_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        match payload_type {
-            "message" => {
-                let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("");
-                if role == "developer" || role == "system" {
-                    continue;
-                }
-
-                if let Some(first_prompt) = extract_first_prompt_text(payload) {
-                    if scan.first_prompt.is_none() && role == "user" {
-                        scan.first_prompt = Some(truncate_string(&first_prompt, 200));
-                    }
-                }
-
-                if !extract_message_content(payload).is_empty() {
-                    scan.message_count += 1;
-                    scan.has_visible_activity = true;
-                }
-            }
-            "function_call"
-                if payload
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .map(|name| !name.trim().is_empty())
-                    .unwrap_or(false) =>
-            {
-                scan.has_visible_activity = true;
-            }
-            "function_call_output"
-                if payload
-                    .get("output")
-                    .map(value_has_visible_content)
-                    .unwrap_or(false) =>
-            {
-                scan.has_visible_activity = true;
-            }
-            "reasoning"
-                if extract_reasoning_text(payload)
-                    .map(|text| !text.trim().is_empty())
-                    .unwrap_or(false) =>
-            {
-                scan.has_visible_activity = true;
-            }
-            _ => {}
-        }
-    }
-
-    scan
 }
 
 fn extract_first_prompt_text(payload: &Value) -> Option<String> {
@@ -1140,6 +1082,7 @@ pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, Strin
         .into_par_iter()
         .map(|fm| {
             let scan = scan_session_file(Path::new(&fm.path));
+            let status = scan.status();
             let thread_name = thread_names.get(&fm.id).cloned();
             SessionIndexEntry {
                 source: "codex".to_string(),
@@ -1158,7 +1101,7 @@ pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, Strin
                 cli_version: fm.cli_version,
                 alias: None,
                 tags: None,
-                status: SessionStatus::Valid,
+                status,
             }
         })
         .collect();
@@ -1177,43 +1120,10 @@ pub fn get_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
 }
 
 pub fn get_invalid_sessions(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
-    // Same project-file selection as the session list, but keep only files with
-    // no visible activity (empty rollouts). Uses the shared index, so no full
-    // tree walk and no meta re-read.
-    let thread_names = load_thread_names();
-    let mut entries: Vec<SessionIndexEntry> = project_files(cwd)
-        .into_par_iter()
-        .filter_map(|fm| {
-            let scan = scan_session_visibility(Path::new(&fm.path));
-            if scan.has_visible_activity {
-                return None;
-            }
-
-            let thread_name = thread_names.get(&fm.id).cloned();
-            Some(SessionIndexEntry {
-                source: "codex".to_string(),
-                session_id: fm.id,
-                file_path: fm.path,
-                first_prompt: scan.first_prompt,
-                thread_name,
-                message_count: scan.message_count,
-                created: fm.created,
-                modified: fm.modified,
-                git_branch: fm.git_branch,
-                project_path: None,
-                is_sidechain: None,
-                cwd: Some(fm.cwd),
-                model_provider: fm.model_provider,
-                cli_version: fm.cli_version,
-                alias: None,
-                tags: None,
-                status: SessionStatus::Empty,
-            })
-        })
-        .collect();
-
-    entries.sort_by(|a, b| b.modified.cmp(&a.modified));
-    Ok(entries)
+    Ok(get_sessions(cwd)?
+        .into_iter()
+        .filter(|entry| entry.status != SessionStatus::Valid)
+        .collect())
 }
 
 // ── Message parsing ──
@@ -1976,6 +1886,61 @@ mod tests {
             }
         });
         fs::write(path, format!("{row}\n")).unwrap();
+    }
+
+    #[test]
+    fn metadata_only_rollout_is_classified_as_empty() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "ai-session-viewer-codex-empty-{}-{unique}.jsonl",
+            std::process::id()
+        ));
+        write_rollout(&path, "empty", r"C:\projects\empty");
+
+        let scan = scan_session_file(&path);
+
+        assert_eq!(scan.status(), SessionStatus::Empty);
+        assert_eq!(scan.message_count, 0);
+        assert!(scan.first_prompt.is_none());
+        fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn user_message_rollout_is_classified_as_valid() {
+        use std::io::Write;
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "ai-session-viewer-codex-valid-{}-{unique}.jsonl",
+            std::process::id()
+        ));
+        write_rollout(&path, "valid", r"C:\projects\valid");
+        let message = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{ "type": "input_text", "text": "检查会话" }]
+            }
+        });
+        writeln!(
+            fs::OpenOptions::new().append(true).open(&path).unwrap(),
+            "{message}"
+        )
+        .unwrap();
+
+        let scan = scan_session_file(&path);
+
+        assert_eq!(scan.status(), SessionStatus::Valid);
+        assert_eq!(scan.message_count, 1);
+        assert_eq!(scan.first_prompt.as_deref(), Some("检查会话"));
+        fs::remove_file(path).unwrap();
     }
 
     #[test]

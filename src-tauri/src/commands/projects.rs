@@ -19,7 +19,7 @@ pub async fn refresh_projects_cache(source: String) -> Result<Vec<ProjectEntry>,
     tauri::async_runtime::spawn_blocking(move || match source.as_str() {
         "claude" => claude::refresh_projects_cache(),
         "codex" => codex::get_projects(),
-        "grok" => grok::get_projects(),
+        "grok" => grok::refresh_projects_cache(),
         _ => Err(format!("Unknown source: {}", source)),
     })
     .await

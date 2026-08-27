@@ -412,7 +412,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       source: s,
       projects: [],
-      projectsLoading: false,
+      projectsLoading: true,
       sessions: [],
       invalidSessions: [],
       sessionsLoading: false,
@@ -469,7 +469,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   projects: [],
-  projectsLoading: false,
+  projectsLoading: true,
   selectedProject: null,
 
   sessions: [],
@@ -523,7 +523,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Share a single in-flight request per source so duplicate mount-time
     // callers (Sidebar + ProjectsPage) don't each kick off a full scan.
     const existing = projectsInFlight.get(requestSource);
-    if (existing) return existing;
+    if (existing) {
+      if (get().source === requestSource) {
+        set({ projectsLoading: true });
+      }
+      return existing;
+    }
 
     const run = (async () => {
       set({ projectsLoading: true });
