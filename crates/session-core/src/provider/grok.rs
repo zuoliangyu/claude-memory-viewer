@@ -391,7 +391,7 @@ fn projects_from_sessions(sessions: Vec<SessionIndexEntry>) -> Vec<ProjectEntry>
                 session_count: sessions
                     .iter()
                     .filter(|session| session.status == SessionStatus::Valid)
-                    .count() as u32,
+                    .count(),
                 last_modified: sessions
                     .iter()
                     .filter_map(|session| session.modified.clone())
