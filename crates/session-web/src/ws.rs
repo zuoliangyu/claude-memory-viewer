@@ -2,6 +2,7 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::Response;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::broadcast;
@@ -74,7 +75,9 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
         }
     }
     if let Some(dir) = grok::get_sessions_dir() {
-        if dir.exists() { let _ = watcher.watch(&dir, RecursiveMode::Recursive); }
+        if dir.exists() {
+            let _ = watcher.watch(&dir, RecursiveMode::Recursive);
+        }
     }
 
     let mut last_emit = Instant::now() - DEBOUNCE_DURATION;
@@ -115,7 +118,15 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
                         }
                     }
                     if let Some(dir) = grok::get_sessions_dir() {
-                        if event.paths.iter().any(|path| path.starts_with(&dir)) { grok::invalidate_sessions_cache(); }
+                        let grok_paths: Vec<PathBuf> = event
+                            .paths
+                            .iter()
+                            .filter(|path| path.starts_with(&dir))
+                            .cloned()
+                            .collect();
+                        if !grok_paths.is_empty() {
+                            grok::invalidate_paths(&grok_paths);
+                        }
                     }
 
                     let paths: Vec<String> = event

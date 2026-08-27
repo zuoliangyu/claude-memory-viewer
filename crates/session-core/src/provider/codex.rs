@@ -44,7 +44,10 @@ use crate::state::{
 // Bumped to 8: `file_index` now stores a nanosecond mtime key and is reconciled
 // against the sessions directory once per process. This picks up rollout files
 // created, changed or deleted while AI Session Viewer was not running.
-const DISK_CACHE_VERSION: u32 = 8;
+// Bumped to 9: each indexed interactive rollout also stores its visibility
+// summary, so project counts and session lists reuse the same mtime-validated
+// scan instead of reopening unchanged files.
+const DISK_CACHE_VERSION: u32 = 9;
 // Session entries before v1 marked every existing rollout as valid. Keep this
 // separate from the file-index version so upgrading only drops derived session
 // lists instead of forcing an expensive full metadata re-index.
@@ -124,18 +127,15 @@ struct CodexDiskCache {
     projects: Option<CachedProjects>,
     #[serde(default)]
     sessions_by_project: HashMap<String, CachedSessions>,
-    /// One entry per rollout file (cheap `session_meta` + file timestamps),
-    /// built once via a parallel scan and reused by the project list, session
-    /// list and invalid-session scans — so they no longer each re-walk the
-    /// whole `~/.codex/sessions` tree and re-open every file's meta.
+    /// One entry per rollout file (session metadata, visibility summary and
+    /// file timestamps), built once via a parallel scan and reused by the
+    /// project list, session list and invalid-session scans.
     #[serde(default)]
     file_index: Option<Vec<CodexFileMeta>>,
 }
 
-/// Lightweight per-file record: everything `extract_session_meta` returns plus
-/// the rollout path, its date bucket, and file timestamps. Lets the session
-/// list be built by full-scanning only the files of the requested project,
-/// without re-reading meta for unrelated files.
+/// Persistent per-file record. The mtime key validates both the session metadata
+/// and visibility summary, so unchanged rollouts never need to be reopened.
 #[derive(serde::Serialize, serde::Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct CodexFileMeta {
@@ -153,6 +153,9 @@ struct CodexFileMeta {
     date: Option<String>,
     modified: Option<String>,
     created: Option<String>,
+    first_prompt: Option<String>,
+    message_count: u32,
+    status: SessionStatus,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
@@ -219,8 +222,11 @@ fn save_disk_cache(cache: &CodexDiskCache) {
     if let Some(path) = disk_cache_path() {
         if let Ok(json) = serde_json::to_string(cache) {
             let tmp_path = path.with_extension("json.tmp");
-            if fs::write(&tmp_path, json).is_ok() {
-                let _ = fs::rename(&tmp_path, &path);
+            if fs::write(&tmp_path, json).is_err() {
+                return;
+            }
+            if fs::rename(&tmp_path, &path).is_err() && fs::copy(&tmp_path, &path).is_ok() {
+                let _ = fs::remove_file(tmp_path);
             }
         }
     }
@@ -555,6 +561,7 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
 
 // ── Single-pass file scan ──
 
+#[derive(Default)]
 struct SessionFileScan {
     first_prompt: Option<String>,
     message_count: u32,
@@ -727,6 +734,12 @@ fn systemtime_to_rfc3339(t: std::time::SystemTime) -> String {
 /// `None` when the file has no `session_meta` row (or can't be read).
 fn file_meta_for(path: &Path) -> Option<CodexFileMeta> {
     let meta = extract_session_meta(path)?;
+    let scan = if meta.is_interactive {
+        scan_session_file(path)
+    } else {
+        SessionFileScan::default()
+    };
+    let status = scan.status();
     let file_meta = fs::metadata(path).ok();
     let modified = file_meta
         .as_ref()
@@ -749,6 +762,9 @@ fn file_meta_for(path: &Path) -> Option<CodexFileMeta> {
         date: extract_date_from_path(path),
         modified,
         created,
+        first_prompt: scan.first_prompt,
+        message_count: scan.message_count,
+        status,
     })
 }
 
@@ -916,18 +932,16 @@ fn project_files(cwd: &str) -> Vec<CodexFileMeta> {
         // (e.g. archived/removed in Codex desktop while the app was closed, or
         // a filesystem event the watcher missed) would otherwise linger here
         // and render as a "(无标题) · 0 条消息" ghost the user can't get rid of.
-        // The callers already open every file they keep, so this extra `exists`
-        // stat is negligible. Indexed paths are concrete files (no glob), so
-        // `Path::exists` is the right check.
+        // Indexed paths are concrete files (no glob), so this cheap `exists`
+        // check prevents a stale cached entry from reaching the UI.
         .filter(|fm| Path::new(&fm.path).exists())
         .collect()
 }
 
-fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
-    let index = load_or_build_file_index();
+fn projects_from_file_index(index: &[CodexFileMeta]) -> Vec<ProjectEntry> {
     let mut project_map: HashMap<String, ProjectEntry> = HashMap::new();
 
-    for fm in &index {
+    for fm in index {
         if !fm.is_interactive {
             continue;
         }
@@ -976,7 +990,9 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
                 is_virtual,
             });
 
-        entry.session_count += 1;
+        if fm.status == SessionStatus::Valid {
+            entry.session_count += 1;
+        }
 
         if let Some(ref modified) = fm.modified {
             if entry
@@ -993,7 +1009,11 @@ fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
     let mut projects: Vec<ProjectEntry> = project_map.into_values().collect();
     projects.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
 
-    Ok(projects)
+    projects
+}
+
+fn scan_projects_from_meta() -> Result<Vec<ProjectEntry>, String> {
+    Ok(projects_from_file_index(&load_or_build_file_index()))
 }
 
 fn build_projects_cache() -> Result<Vec<ProjectEntry>, String> {
@@ -1075,23 +1095,20 @@ pub fn delete_project(project_id: &str) -> Result<super::claude::DeleteResult, S
 }
 
 pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, String> {
-    // Only the files belonging to this project (from the shared index) get
-    // opened — no full tree walk, and no meta re-read (it's cached in the
-    // index). Just the unavoidable full scan for first_prompt + message count.
+    // All display fields come from the mtime-validated file index. No rollout
+    // is reopened here, including after switching away and back to Codex.
     let thread_names = load_thread_names();
     let mut entries: Vec<SessionIndexEntry> = project_files(cwd)
-        .into_par_iter()
+        .into_iter()
         .map(|fm| {
-            let scan = scan_session_file(Path::new(&fm.path));
-            let status = scan.status();
             let thread_name = thread_names.get(&fm.id).cloned();
             SessionIndexEntry {
                 source: "codex".to_string(),
                 session_id: fm.id,
                 file_path: fm.path,
-                first_prompt: scan.first_prompt,
+                first_prompt: fm.first_prompt,
                 thread_name,
-                message_count: scan.message_count,
+                message_count: fm.message_count,
                 created: fm.created,
                 modified: fm.modified,
                 git_branch: fm.git_branch,
@@ -1102,7 +1119,7 @@ pub fn refresh_sessions_cache(cwd: &str) -> Result<Vec<SessionIndexEntry>, Strin
                 cli_version: fm.cli_version,
                 alias: None,
                 tags: None,
-                status,
+                status: fm.status,
             }
         })
         .collect();
@@ -1942,6 +1959,51 @@ mod tests {
         assert_eq!(scan.message_count, 1);
         assert_eq!(scan.first_prompt.as_deref(), Some("检查会话"));
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn project_count_excludes_empty_rollouts() {
+        use std::io::Write;
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "ai-session-viewer-codex-project-count-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let empty = dir.join("rollout-empty.jsonl");
+        let valid = dir.join("rollout-valid.jsonl");
+        let cwd = r"C:\projects\count-test";
+        write_rollout(&empty, "empty", cwd);
+        write_rollout(&valid, "valid", cwd);
+        let message = serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{ "type": "input_text", "text": "有效会话" }]
+            }
+        });
+        writeln!(
+            fs::OpenOptions::new().append(true).open(&valid).unwrap(),
+            "{message}"
+        )
+        .unwrap();
+
+        let index = vec![
+            file_meta_for(&empty).unwrap(),
+            file_meta_for(&valid).unwrap(),
+        ];
+        let projects = projects_from_file_index(&index);
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].session_count, 1);
+        assert_eq!(index[0].status, SessionStatus::Empty);
+        assert_eq!(index[1].status, SessionStatus::Valid);
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

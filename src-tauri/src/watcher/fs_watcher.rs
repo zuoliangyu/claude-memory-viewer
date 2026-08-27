@@ -10,7 +10,7 @@ use session_core::provider::{claude, codex, grok};
 /// Minimum interval between emitting fs-change events to the frontend.
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(300);
 
-/// Start watching both Claude and Codex directories for changes.
+/// Start watching Claude, Codex and Grok session directories for changes.
 /// Emits "fs-change" events to the frontend when files are modified.
 /// Events are debounced to avoid flooding the frontend during batch operations.
 pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
@@ -57,7 +57,9 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
             }
         }
         if let Some(ref dir) = grok_dir {
-            if dir.exists() { let _ = watcher.watch(dir, RecursiveMode::Recursive); }
+            if dir.exists() {
+                let _ = watcher.watch(dir, RecursiveMode::Recursive);
+            }
         }
 
         let mut last_emit = Instant::now() - DEBOUNCE_DURATION;
@@ -77,13 +79,18 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                     });
 
                     if relevant && last_emit.elapsed() >= DEBOUNCE_DURATION {
-                        let is_claude_change = claude_dir.as_ref().map(|dir| {
-                            event.paths.iter().any(|path| path.starts_with(dir))
-                        }).unwrap_or(false);
-                        let is_codex_change = codex_dir.as_ref().map(|dir| {
-                            event.paths.iter().any(|path| path.starts_with(dir))
-                        }).unwrap_or(false);
-                        let is_grok_change = grok_dir.as_ref().map(|dir| event.paths.iter().any(|path| path.starts_with(dir))).unwrap_or(false);
+                        let is_claude_change = claude_dir
+                            .as_ref()
+                            .map(|dir| event.paths.iter().any(|path| path.starts_with(dir)))
+                            .unwrap_or(false);
+                        let is_codex_change = codex_dir
+                            .as_ref()
+                            .map(|dir| event.paths.iter().any(|path| path.starts_with(dir)))
+                            .unwrap_or(false);
+                        let is_grok_change = grok_dir
+                            .as_ref()
+                            .map(|dir| event.paths.iter().any(|path| path.starts_with(dir)))
+                            .unwrap_or(false);
 
                         // Hand each provider only the paths under its own
                         // directory, so it can surgically update just the
@@ -114,7 +121,19 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                                 }
                             }
                         }
-                        if is_grok_change { grok::invalidate_sessions_cache(); }
+                        if is_grok_change {
+                            if let Some(ref dir) = grok_dir {
+                                let paths: Vec<PathBuf> = event
+                                    .paths
+                                    .iter()
+                                    .filter(|p| p.starts_with(dir))
+                                    .cloned()
+                                    .collect();
+                                if !paths.is_empty() {
+                                    grok::invalidate_paths(&paths);
+                                }
+                            }
+                        }
 
                         let paths: Vec<String> = event
                             .paths

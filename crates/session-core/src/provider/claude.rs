@@ -437,7 +437,13 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
             let session_count = cache
                 .sessions_by_project
                 .get(&encoded_name)
-                .map(|cached| cached.entries.len())
+                .map(|cached| {
+                    cached
+                        .entries
+                        .iter()
+                        .filter(|entry| entry.status == SessionStatus::Valid)
+                        .count()
+                })
                 .unwrap_or_else(|| count_valid_jsonl_files(&path));
             if session_count == 0 {
                 return None;

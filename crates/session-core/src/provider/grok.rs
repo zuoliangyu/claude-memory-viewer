@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -12,13 +12,69 @@ use crate::models::message::{
 };
 use crate::models::project::ProjectEntry;
 use crate::models::session::{SessionIndexEntry, SessionStatus};
+use crate::state::file_modified_key;
 
 const CHAT_HISTORY_FILE: &str = "chat_history.jsonl";
 const UNROOTED_PROJECT: &str = "<grok-unrooted>";
+const DISK_CACHE_VERSION: u32 = 1;
 
-fn sessions_cache() -> &'static Mutex<Option<Vec<SessionIndexEntry>>> {
-    static CACHE: OnceLock<Mutex<Option<Vec<SessionIndexEntry>>>> = OnceLock::new();
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+struct GrokDiskCache {
+    version: u32,
+    sessions_by_dir: HashMap<String, CachedGrokSession>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct CachedGrokSession {
+    summary_modified_key: u64,
+    history_modified_key: u64,
+    entry: SessionIndexEntry,
+}
+
+fn sessions_cache() -> &'static Mutex<Option<GrokDiskCache>> {
+    static CACHE: OnceLock<Mutex<Option<GrokDiskCache>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn disk_cache_path() -> Option<PathBuf> {
+    let dir = dirs::config_dir()?.join("ai-session-viewer");
+    let _ = fs::create_dir_all(&dir);
+    Some(dir.join("grok-list-cache.json"))
+}
+
+fn read_disk_cache() -> GrokDiskCache {
+    let Some(path) = disk_cache_path() else {
+        return GrokDiskCache::default();
+    };
+    let Ok(content) = fs::read_to_string(path) else {
+        return GrokDiskCache::default();
+    };
+    let Ok(cache) = serde_json::from_str::<GrokDiskCache>(&content) else {
+        return GrokDiskCache::default();
+    };
+    if cache.version == DISK_CACHE_VERSION {
+        cache
+    } else {
+        GrokDiskCache::default()
+    }
+}
+
+fn save_disk_cache(cache: &GrokDiskCache) {
+    let Some(path) = disk_cache_path() else {
+        return;
+    };
+    let Ok(json) = serde_json::to_string(cache) else {
+        return;
+    };
+    let tmp_path = path.with_extension("json.tmp");
+    if fs::write(&tmp_path, json).is_err() {
+        return;
+    }
+    if fs::rename(&tmp_path, &path).is_err() && fs::copy(&tmp_path, &path).is_ok() {
+        let _ = fs::remove_file(tmp_path);
+    }
 }
 
 pub struct SessionMeta {
@@ -216,28 +272,91 @@ fn session_entry(dir: &Path) -> Option<SessionIndexEntry> {
     })
 }
 
-fn scan_all_sessions() -> Vec<SessionIndexEntry> {
-    session_dirs()
-        .iter()
-        .filter_map(|dir| session_entry(dir))
+fn session_modified_keys(dir: &Path) -> Option<(u64, u64)> {
+    Some((
+        file_modified_key(&dir.join("summary.json")).ok()?,
+        file_modified_key(&dir.join(CHAT_HISTORY_FILE)).ok()?,
+    ))
+}
+
+fn cached_session_for_dir(dir: &Path) -> Option<CachedGrokSession> {
+    let entry = session_entry(dir)?;
+    let (summary_modified_key, history_modified_key) = session_modified_keys(dir)?;
+    Some(CachedGrokSession {
+        summary_modified_key,
+        history_modified_key,
+        entry,
+    })
+}
+
+fn reconcile_sessions_cache_with<F>(
+    mut cache: GrokDiskCache,
+    dirs: Vec<PathBuf>,
+    mut scan: F,
+) -> (GrokDiskCache, bool)
+where
+    F: FnMut(&Path) -> Option<CachedGrokSession>,
+{
+    let mut cached_by_dir = std::mem::take(&mut cache.sessions_by_dir);
+    let mut sessions_by_dir = HashMap::with_capacity(dirs.len());
+    let mut changed = cache.version != DISK_CACHE_VERSION;
+    cache.version = DISK_CACHE_VERSION;
+
+    for dir in dirs {
+        let key = dir.to_string_lossy().into_owned();
+        let modified_keys = session_modified_keys(&dir);
+        match (cached_by_dir.remove(&key), modified_keys) {
+            (Some(cached), Some((summary_key, history_key)))
+                if cached.summary_modified_key == summary_key
+                    && cached.history_modified_key == history_key =>
+            {
+                sessions_by_dir.insert(key, cached);
+            }
+            _ => {
+                changed = true;
+                if let Some(session) = scan(&dir) {
+                    sessions_by_dir.insert(key, session);
+                }
+            }
+        }
+    }
+
+    if !cached_by_dir.is_empty() {
+        changed = true;
+    }
+    cache.sessions_by_dir = sessions_by_dir;
+    (cache, changed)
+}
+
+fn reconcile_sessions_cache(cache: GrokDiskCache, dirs: Vec<PathBuf>) -> (GrokDiskCache, bool) {
+    reconcile_sessions_cache_with(cache, dirs, cached_session_for_dir)
+}
+
+fn sessions_from_cache(cache: &GrokDiskCache) -> Vec<SessionIndexEntry> {
+    cache
+        .sessions_by_dir
+        .values()
+        .map(|cached| cached.entry.clone())
         .collect()
 }
 
 fn load_all_sessions() -> Vec<SessionIndexEntry> {
-    let mut cache = sessions_cache().lock();
-    if let Some(sessions) = cache.as_ref() {
-        return sessions.clone();
+    let mut state = sessions_cache().lock();
+    let base = state.take().unwrap_or_else(read_disk_cache);
+    let (cache, changed) = reconcile_sessions_cache(base, session_dirs());
+    if changed {
+        save_disk_cache(&cache);
     }
-
-    let sessions = scan_all_sessions();
-    *cache = Some(sessions.clone());
+    let sessions = sessions_from_cache(&cache);
+    *state = Some(cache);
     sessions
 }
 
 fn rebuild_all_sessions() -> Vec<SessionIndexEntry> {
-    let mut cache = sessions_cache().lock();
-    let sessions = scan_all_sessions();
-    *cache = Some(sessions.clone());
+    let (cache, _) = reconcile_sessions_cache(GrokDiskCache::default(), session_dirs());
+    save_disk_cache(&cache);
+    let sessions = sessions_from_cache(&cache);
+    *sessions_cache().lock() = Some(cache);
     sessions
 }
 
@@ -269,7 +388,10 @@ fn projects_from_sessions(sessions: Vec<SessionIndexEntry>) -> Vec<ProjectEntry>
                 id: id.clone(),
                 display_path: id.clone(),
                 short_name,
-                session_count: sessions.len(),
+                session_count: sessions
+                    .iter()
+                    .filter(|session| session.status == SessionStatus::Valid)
+                    .count() as u32,
                 last_modified: sessions
                     .iter()
                     .filter_map(|session| session.modified.clone())
@@ -288,15 +410,56 @@ pub fn get_projects() -> Result<Vec<ProjectEntry>, String> {
 }
 
 pub fn refresh_projects_cache() -> Result<Vec<ProjectEntry>, String> {
-    Ok(projects_from_sessions(rebuild_all_sessions()))
+    get_projects()
 }
 
 pub fn rebuild_projects_cache() -> Result<Vec<ProjectEntry>, String> {
-    refresh_projects_cache()
+    Ok(projects_from_sessions(rebuild_all_sessions()))
 }
 
 pub fn invalidate_sessions_cache() {
     *sessions_cache().lock() = None;
+}
+
+fn changed_session_dirs(paths: &[PathBuf]) -> HashSet<PathBuf> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let file_name = path.file_name().and_then(|name| name.to_str());
+            if file_name == Some("summary.json") || file_name == Some(CHAT_HISTORY_FILE) {
+                path.parent().map(Path::to_path_buf)
+            } else if path.join("summary.json").exists() || path.join(CHAT_HISTORY_FILE).exists() {
+                Some(path.clone())
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Update only changed Grok session directories when the shared snapshot is
+/// already warm. A cold snapshot is reconciled lazily against the disk cache.
+pub fn invalidate_paths(paths: &[PathBuf]) {
+    let changed_dirs = changed_session_dirs(paths);
+    if changed_dirs.is_empty() {
+        return;
+    }
+
+    let snapshot = {
+        let mut state = sessions_cache().lock();
+        let Some(cache) = state.as_mut() else {
+            return;
+        };
+        for dir in changed_dirs {
+            let key = dir.to_string_lossy().into_owned();
+            cache.sessions_by_dir.remove(&key);
+            if let Some(session) = cached_session_for_dir(&dir) {
+                cache.sessions_by_dir.insert(key, session);
+            }
+        }
+        cache.clone()
+    };
+    save_disk_cache(&snapshot);
 }
 
 pub fn get_sessions(project_id: &str) -> Result<Vec<SessionIndexEntry>, String> {
@@ -417,6 +580,20 @@ mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn write_session(dir: &Path, id: &str, cwd: &str, text: Option<&str>) {
+        fs::create_dir_all(dir).unwrap();
+        let summary = serde_json::json!({
+            "info": { "id": id, "cwd": cwd },
+            "created_at": "2026-08-27T00:00:00Z",
+            "updated_at": "2026-08-27T00:00:00Z"
+        });
+        fs::write(dir.join("summary.json"), summary.to_string()).unwrap();
+        let history = text
+            .map(|text| serde_json::json!({ "type": "user", "content": text }).to_string())
+            .unwrap_or_default();
+        fs::write(dir.join(CHAT_HISTORY_FILE), history).unwrap();
+    }
+
     #[test]
     fn parses_visible_history_and_paginates_from_end() {
         let unique = SystemTime::now()
@@ -450,5 +627,90 @@ mod tests {
         assert!(page.has_more);
 
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn project_count_excludes_empty_sessions() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "ai-session-viewer-grok-project-count-{}-{unique}",
+            std::process::id()
+        ));
+        let empty = root.join("empty");
+        let valid = root.join("valid");
+        let cwd = r"C:\projects\grok-count-test";
+        write_session(&empty, "empty", cwd, None);
+        write_session(&valid, "valid", cwd, Some("有效会话"));
+
+        let projects = projects_from_sessions(vec![
+            session_entry(&empty).unwrap(),
+            session_entry(&valid).unwrap(),
+        ]);
+
+        assert_eq!(projects.len(), 1);
+        assert_eq!(projects[0].session_count, 1);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn reconcile_reuses_unchanged_sessions_and_rescans_only_changes() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "ai-session-viewer-grok-cache-{}-{unique}",
+            std::process::id()
+        ));
+        let first = root.join("first");
+        let second = root.join("second");
+        write_session(&first, "first", r"C:\projects\first", Some("one"));
+        write_session(&second, "second", r"C:\projects\second", Some("two"));
+        let dirs = vec![first.clone(), second.clone()];
+
+        let (cache, changed) = reconcile_sessions_cache(GrokDiskCache::default(), dirs.clone());
+        assert!(changed);
+        assert_eq!(cache.sessions_by_dir.len(), 2);
+
+        let mut scans = 0;
+        let (cache, changed) = reconcile_sessions_cache_with(cache, dirs.clone(), |dir| {
+            scans += 1;
+            cached_session_for_dir(dir)
+        });
+        assert!(!changed);
+        assert_eq!(scans, 0);
+
+        fs::write(
+            first.join(CHAT_HISTORY_FILE),
+            serde_json::json!({ "type": "user", "content": "changed" }).to_string(),
+        )
+        .unwrap();
+        filetime::set_file_mtime(
+            first.join(CHAT_HISTORY_FILE),
+            filetime::FileTime::from_unix_time(2_000_000_000, 0),
+        )
+        .unwrap();
+
+        scans = 0;
+        let (cache, changed) = reconcile_sessions_cache_with(cache, dirs, |dir| {
+            scans += 1;
+            cached_session_for_dir(dir)
+        });
+        assert!(changed);
+        assert_eq!(scans, 1);
+
+        fs::remove_dir_all(&second).unwrap();
+        scans = 0;
+        let (cache, changed) = reconcile_sessions_cache_with(cache, vec![first], |dir| {
+            scans += 1;
+            cached_session_for_dir(dir)
+        });
+        assert!(changed);
+        assert_eq!(scans, 0);
+        assert_eq!(cache.sessions_by_dir.len(), 1);
+        fs::remove_dir_all(root).unwrap();
     }
 }
