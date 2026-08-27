@@ -26,7 +26,7 @@
 
 本应用**仅处理本地会话文件**，不上传任何数据；删除、标签、别名等写操作只在用户主动触发时执行。
 
-> **What's New（v2.19.0）**：新增 Codex 轨迹视图，可按 Turn / 近似 Step 查看工具调用、Reasoning、子 Agent、上下文压缩与 Token 变化；大型轨迹采用渐进加载，并修复消息读取被后台历史扫描阻塞、导致大型会话长时间无响应的问题。开发模式同时新增端到端性能诊断日志与分析脚本。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.20.0）**：Claude、Codex、Grok 切换现在使用始终可见的纵向品牌导航，并在加载期间明确显示状态；三种数据源统一只统计有效会话，持久缓存与文件监听改为增量校验，大型历史库切换更快且不再出现海量“无标题”空会话。开发与构建入口统一为 Windows `menu.ps1` 和 Linux/macOS `menu.sh`，项目基线升级到 Node.js 22。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 >
 > v2.15.x 起：在 **Codex desktop 中归档 / 删除的会话**残留为「(无标题)」幽灵条目已修复（删除对「文件已消失」幂等）；**会话导出**（JSON / Markdown / HTML，单个 + 批量）、**批量删除会话 / 项目**（移入回收站可还原）、**Codex 项目删除**；初次启动**扫描进度条** + 冷启动 rayon 限流给 UI 留一核，会话页 / 项目页全面**列表虚拟化**（`@tanstack/react-virtual`）。
 
@@ -149,24 +149,25 @@ environment:
 
 ### 三数据源
 
-侧边栏顶部 Tab 一键切换 Claude / Codex / Grok，切换时自动清理状态并重新加载，互不干扰。
+侧边栏顶部以纵向品牌导航直接展示 Claude / Codex / Grok，点击即可切换；切换时会立即清理上一数据源状态并显示加载进度，不会短暂展示旧项目或误报“0 个项目”。机器/节点选择器位于来源列表下方的独立层级。
 
 | 数据源 | CLI 工具 | 本地数据 | 特色内容块 |
 |--------|---------|---------|-----------|
-| **Claude**（橙色主题） | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/projects/` | Thinking、工具调用 |
-| **Codex**（绿色主题） | [Codex CLI](https://github.com/openai/codex) | `~/.codex/sessions/` | Reasoning、函数调用 |
-| **Grok**（紫色主题） | Grok CLI | `$GROK_HOME/sessions/` 或 `~/.grok/sessions/` | Reasoning、文本消息 |
+| **Claude** | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/projects/` | Thinking、工具调用 |
+| **Codex** | [Codex CLI](https://github.com/openai/codex) | `~/.codex/sessions/` | Reasoning、函数调用 |
+| **Grok** | Grok CLI | `$GROK_HOME/sessions/` 或 `~/.grok/sessions/` | Reasoning、文本消息 |
 
 ### 项目浏览
 
 启动即扫描数据源目录，秒开列出所有项目，按最近活跃时间排序，显示每个项目的会话数和最后活跃时间。
 
+- **增量缓存**：Claude、Codex、Grok 均持久化项目/会话摘要，并通过文件修改签名只重读新增或变化的历史文件；应用关闭期间产生的变化也会在下次启动时自动校验
 - **工程操作菜单**（卡片 / 侧边栏行悬停出现的 `⋯`）：复制工程路径、删除会话数据支持所有数据源（Codex 含按日期合成的虚拟项目）；设置工程别名和删除源代码仍为 Claude 专属
 - **批量删除项目**：列表右上角「选择」进入多选模式，勾选多个工程后底部操作条一键删除（移入回收站可还原），Claude 可选「同时清理 CC 配置」
 - **工程别名**：设置自定义显示名，不改磁盘目录，删除工程时随目录自动清理
 - **删除源代码保护**：可选连同本地源代码目录一起删，删前自动检查 Git 状态（未提交 / 未推送）并要求输入项目名确认
 - **列表虚拟化**：项目列表按窗口宽度自适应 1~3 列后做行级虚拟化，几百个工程也只渲染可见行，滚动 / 切换多选恒定流畅；首次启动显示扫描进度条
-- **手动刷新缓存**：项目列表右上角可主动重建项目缓存；Codex 会完整重扫 rollout 索引，适合文件监听遗漏或外部批量变更后的立即同步
+- **手动刷新缓存**：项目列表右上角可主动重建项目缓存；常规变化由增量签名与文件监听自动处理，手动刷新适合外部批量迁移后的立即核对
 - **Codex 未归属会话**：codex 数据源中 `cwd` 字段为空的会话（CLI 在无 git/无目录上下文里启动等情况）会按 rollout 文件日期合成虚拟项目，名为「未归属 · YYYY-MM-DD」，侧栏用 `FolderClock` 图标区分，不再被静默丢弃
 
 ### 会话列表
@@ -174,8 +175,8 @@ environment:
 点进工程时精确扫描该工程的会话，展示每个会话的首条 Prompt、消息数、Git 分支、创建 / 修改时间。
 
 - Claude：Ctrl+C 退出的会话也不会丢失
-- Codex：自动过滤非交互式会话（SubAgent、Exec 等内部会话）
-- Grok：读取 `summary.json` 与 `chat_history.jsonl`，自动忽略系统提示和合成提醒
+- Codex：自动过滤非交互式会话（SubAgent、Exec 等内部会话）以及只有元数据、没有可见活动的 rollout
+- Grok：读取 `summary.json` 与 `chat_history.jsonl`，自动忽略系统提示、合成提醒与空会话
 - 支持删除会话（带确认弹窗）
 - **会话导出**：单个会话悬停「导出」按钮，选 JSON / Markdown / HTML 任一格式保存；桌面端走系统保存框，Web 端浏览器下载
 - **批量选择**：右上角「选择」进入多选模式，可一次**批量导出**（每会话一个文件）或**批量删除**（移入回收站可还原）多个会话
@@ -324,7 +325,7 @@ Skills 页面中的「MCP / 插件」支持比较两个 `session-web` 节点的�
 
 ### 实时刷新
 
-新会话创建、会话更新时自动刷新界面。桌面端每 10 分钟静默后台刷新一次项目与会话缓存；Docker 挂载卷下做了防抖，避免界面频繁闪烁。
+新会话创建、会话更新时自动刷新界面。桌面端与 Web 端会收集防抖窗口内的全部变化路径，去重后批量刷新对应项目，不会因密集写入遗漏事件；持续写入设有最长批次时间，兼顾实时性与刷新频率。桌面端另有每 10 分钟一次的静默安全刷新。
 
 ### 数据安全
 
@@ -508,7 +509,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 
 ## 发布
 
-标签触发：`git tag v1.x.0 && git push origin v1.x.0`。GitHub Actions 会自动：
+标签触发：`git tag v2.x.0 && git push origin v2.x.0`。GitHub Actions 会自动：
 
 1. 在 Windows、macOS（Intel + Apple Silicon）、Linux 上并行构建桌面应用
 2. 构建 Web 服务器 Linux 二进制 + Docker 镜像（推送到 GHCR）

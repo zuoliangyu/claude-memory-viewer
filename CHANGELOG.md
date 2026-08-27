@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+---
+
+## [2.20.0] - 2026-08-27
+
 ### Added
 
 - 新增 Windows `menu.ps1` 与 Linux/macOS `menu.sh` 统一入口，以及成对的 PowerShell/Bash 开发、构建、部署、清理、性能分析和轻量检查脚本；根目录只保留菜单，具体实现统一放在 `scripts/`。
@@ -17,6 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - 本地桌面构建通过临时 Tauri 配置关闭 updater 产物生成，不再保存或要求发布签名私钥密码；正式发布与 CI 签名流程保持不变。
 - 项目开发基线升级为 Node.js 22，CI、`.nvmrc`、package engines 和开发文档保持一致。
 - 性能日志分析收敛为跨平台 Node 实现，PowerShell/Bash 仅负责参数转发；节点配置与时区检查接入 `npm run check:scripts` 和菜单。
+- Claude、Codex、Grok 的项目与会话缓存统一向增量校验收敛：应用重启后通过文件修改签名发现变化，运行期间按文件监听路径精确失效，未变化历史不再重复解析。
 
 ### Fixed
 
@@ -27,6 +32,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - 修复首次切换到 Codex 时，项目加载、后台刷新和文件监听并发触发多次索引扫描的问题；冷索引构建现在按进程合并，启动刷新不再随数据源切换重复调度，扫描进度也不会被旧任务污染或超过总数。
 - 修复应用关闭期间 Claude 会话变化后仍命中旧项目缓存的问题；启动时通过文件修改时间与长度签名精确剔除变化项目，未变化历史无需重新解析。
 - 修复桌面端与 Web 端文件监听在防抖窗口内直接丢弃后续路径的问题；监听事件现在去重合并后批量失效，并设置最长批次时间避免持续写入延迟刷新。
+- 修复 Grok 项目有效会话数类型不一致导致 Rust 测试与 Clippy 无法编译的问题，并合并 Codex 可见活动判断中的重复分支，兼容严格的 `-D warnings` 检查。
+
+### Version
+
+- 将工作区版本统一提升到 `2.20.0`，同步 `package.json`、`package-lock.json`、根 `Cargo.lock`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
 
 ---
 
