@@ -33,15 +33,16 @@ function formatDuration(ms: number | null): string {
  * Markdown table — useful for sharing receipts in a team chat.
  */
 export function SessionCostBadge({ filePath }: { filePath: string }) {
-  const { sessionCosts, loadSessionCost } = useAppStore();
-  const summary = sessionCosts[filePath] ?? null;
+  const summary = useAppStore((state) => state.sessionCosts[filePath] ?? null);
+  const messagesLoading = useAppStore((state) => state.messagesLoading);
+  const loadSessionCost = useAppStore((state) => state.loadSessionCost);
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (filePath) {
-      loadSessionCost(filePath);
+    if (filePath && !messagesLoading) {
+      void loadSessionCost(filePath);
     }
-  }, [filePath, loadSessionCost]);
+  }, [filePath, loadSessionCost, messagesLoading]);
 
   if (!summary || summary.requestCount === 0) {
     // Nothing useful to show yet — for very fresh sessions or for sources

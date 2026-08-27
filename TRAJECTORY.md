@@ -61,6 +61,7 @@ Select-String -Path target\perf\dev-*.log -Pattern '\[ASV-PERF\]'
 - `messages.dom_committed` / `messages.paint_ready`：消息响应到 DOM 提交、以及后续可绘制的耗时，同时携带 DOM 节点数和 JS 堆内存。
 - `watcher.refresh_dispatched` / `messages.refresh_skipped`：文件监听合并后的路径数量，以及因变更不属于当前会话而跳过消息刷新的记录。
 - `background_refresh.completed`：项目与会话后台刷新耗时，并标记返回数据是否实际改变 store。
+- `stats.session_cost_backend`：当前会话账单的后端读取耗时；Codex 只扫描当前 rollout，不再为一个徽标遍历全部会话。
 - `trajectory.ipc_roundtrip`：前端调用到收到完整结果的总耗时，包含后端解析、序列化、IPC 传输和前端反序列化。
 - `react.commit`：React Profiler 测得的轨迹子树渲染耗时。
 - `trajectory.dom_committed`：收到结果到 DOM 提交完成的等待时间，并携带 DOM 节点数和 JS 堆内存。
@@ -71,6 +72,8 @@ Select-String -Path target\perf\dev-*.log -Pattern '\[ASV-PERF\]'
 `fields` 中的 `detailChars`、`textChars` 和 `approximateTextMb` 用于判断大段 `input/output` 或消息正文是否造成 IPC 与内存压力；`documentNodes`、`rootNodes` 和 `usedHeapMb` 用于判断 DOM 与垃圾回收压力。轨迹请求在 React StrictMode 下仍可能出现两次；消息首次请求通过 in-flight 合并，只会执行一次后端读取，并以 `messages.request_deduplicated` 记录被合并的调用。
 
 桌面端的项目与会话扫描命令统一在阻塞线程池执行，避免深扫大型 rollout 时占用 Tauri UI/IPC 线程。启动后的首次后台核对只读取现有缓存，不会立即重复强制扫描；手动重建和周期刷新仍会更新缓存，但不会阻塞窗口交互。开发诊断的终端写入同样在阻塞线程执行，日志管道变慢时不会反向占用 UI 线程。
+
+消息页的会话账单按文件读取，并对相同数据源与文件的并发请求做 singleflight 合并。React StrictMode 重复挂载不会再触发两次 Codex 全库账单扫描。
 
 ## 归属
 

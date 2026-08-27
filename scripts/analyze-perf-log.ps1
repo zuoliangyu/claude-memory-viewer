@@ -32,6 +32,10 @@ $slowestRefresh = $events |
     Where-Object name -eq "background_refresh.completed" |
     Sort-Object { [double]$_.durationMs } -Descending |
     Select-Object -First 1
+$slowestSessionCost = $events |
+    Where-Object name -eq "stats.session_cost_backend" |
+    Sort-Object { [double]$_.durationMs } -Descending |
+    Select-Object -First 1
 $longTasks = @($events | Where-Object name -eq "browser.long_task")
 
 Write-Host "日志: $Path"
@@ -40,6 +44,10 @@ Write-Host ("最慢消息 IPC: {0:N1} ms（{1} 条消息，约 {2} MB 文本）"
 if ($slowestRefresh) {
     Write-Host ("最慢后台刷新: {0:N1} ms（reason={1}, forceReload={2}）" -f `
         [double]$slowestRefresh.durationMs, $slowestRefresh.fields.reason, $slowestRefresh.fields.forceReload)
+}
+if ($slowestSessionCost) {
+    Write-Host ("最慢会话账单: {0:N1} ms（{1} 次请求）" -f `
+        [double]$slowestSessionCost.durationMs, $slowestSessionCost.fields.requests)
 }
 Write-Host ("浏览器长任务: {0}" -f $longTasks.Count)
 

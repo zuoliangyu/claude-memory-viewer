@@ -309,8 +309,9 @@ fn codex_project_costs() -> Result<Vec<ProjectCostEntry>, String> {
 
 pub fn get_session_cost(source: &str, file_path: &str) -> Result<SessionCostSummary, String> {
     if source == "codex" {
-        let records = codex::collect_requests()?;
-        return Ok(build_session_summary_from_records(source, file_path, records));
+        let path = crate::paths::validate_session_file(source, file_path)?;
+        let records = codex::collect_requests_for_file(&path);
+        return Ok(materialise_session_summary(source, file_path, records));
     }
     if source != "claude" {
         return Err(format!("Unknown source: {}", source));
@@ -329,18 +330,6 @@ pub fn get_session_cost(source: &str, file_path: &str) -> Result<SessionCostSumm
         records.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
         Ok(materialise_session_summary(source, file_path, records))
     })
-}
-
-fn build_session_summary_from_records(
-    source: &str,
-    file_path: &str,
-    records: Vec<RequestRecord>,
-) -> SessionCostSummary {
-    let matched: Vec<RequestRecord> = records
-        .into_iter()
-        .filter(|r| r.file_path == file_path)
-        .collect();
-    materialise_session_summary(source, file_path, matched)
 }
 
 fn materialise_session_summary(

@@ -1780,63 +1780,67 @@ struct TokenEvent {
     output_tokens: u64,
 }
 
+fn request_records_for_file(path: &Path) -> Vec<crate::models::stats::RequestRecord> {
+    use crate::models::pricing;
+    use crate::models::stats::RequestRecord;
+
+    let meta = extract_session_meta(path);
+    let session_id = meta.as_ref().map(|m| m.id.clone()).unwrap_or_default();
+    let project_id = meta
+        .as_ref()
+        .map(|m| {
+            if m.cwd.is_empty() {
+                let date = extract_date_from_path(path).unwrap_or_else(|| "unknown".to_string());
+                virtual_project_id(&date)
+            } else {
+                m.cwd.clone()
+            }
+        })
+        .unwrap_or_default();
+    let model = meta
+        .as_ref()
+        .and_then(|m| m.model_provider.clone())
+        .unwrap_or_else(|| "unknown".to_string());
+    let file_path = path.to_string_lossy().into_owned();
+
+    extract_token_events(path)
+        .into_iter()
+        .map(|event| {
+            let cost = pricing::compute_cost(&model, event.input_tokens, 0, 0, event.output_tokens);
+            RequestRecord {
+                timestamp: event.timestamp,
+                source: "codex".to_string(),
+                project_id: project_id.clone(),
+                session_id: session_id.clone(),
+                file_path: file_path.clone(),
+                model: model.clone(),
+                input_tokens: event.input_tokens,
+                output_tokens: event.output_tokens,
+                cache_read_tokens: 0,
+                cache_creation_tokens: 0,
+                total_tokens: event.input_tokens + event.output_tokens,
+                cost_usd: cost,
+                is_priced: pricing::is_priced(&model),
+                duration_ms: None,
+                message_uuid: None,
+            }
+        })
+        .collect()
+}
+
+/// Collect request records for one validated Codex rollout.
+pub fn collect_requests_for_file(path: &Path) -> Vec<crate::models::stats::RequestRecord> {
+    request_records_for_file(path)
+}
+
 /// Collect per-turn request records across all rollouts. Codex doesn't
 /// expose cache_read/cache_creation streams (those are baked into
 /// `input_tokens` server-side), so those fields are 0 here and the cache
 /// hit-rate chart simply has no Codex line.
 pub fn collect_requests() -> Result<Vec<crate::models::stats::RequestRecord>, String> {
-    use crate::models::pricing;
-    use crate::models::stats::RequestRecord;
-
-    let files = scan_all_session_files();
-    let mut all: Vec<RequestRecord> = Vec::new();
-
-    for file_path in files {
-        let meta = extract_session_meta(&file_path);
-        let session_id = meta
-            .as_ref()
-            .map(|m| m.id.clone())
-            .unwrap_or_default();
-        let project_id = meta
-            .as_ref()
-            .map(|m| {
-                if m.cwd.is_empty() {
-                    let date = extract_date_from_path(&file_path)
-                        .unwrap_or_else(|| "unknown".to_string());
-                    virtual_project_id(&date)
-                } else {
-                    m.cwd.clone()
-                }
-            })
-            .unwrap_or_default();
-        let model = meta
-            .as_ref()
-            .and_then(|m| m.model_provider.clone())
-            .unwrap_or_else(|| "unknown".to_string());
-
-        let file_path_str = file_path.to_string_lossy().into_owned();
-        let events = extract_token_events(&file_path);
-        for ev in events {
-            let cost = pricing::compute_cost(&model, ev.input_tokens, 0, 0, ev.output_tokens);
-            let total = ev.input_tokens + ev.output_tokens;
-            all.push(RequestRecord {
-                timestamp: ev.timestamp.clone(),
-                source: "codex".to_string(),
-                project_id: project_id.clone(),
-                session_id: session_id.clone(),
-                file_path: file_path_str.clone(),
-                model: model.clone(),
-                input_tokens: ev.input_tokens,
-                output_tokens: ev.output_tokens,
-                cache_read_tokens: 0,
-                cache_creation_tokens: 0,
-                total_tokens: total,
-                cost_usd: cost,
-                is_priced: pricing::is_priced(&model),
-                duration_ms: None,
-                message_uuid: None,
-            });
-        }
+    let mut all = Vec::new();
+    for file_path in scan_all_session_files() {
+        all.extend(request_records_for_file(&file_path));
     }
 
     Ok(all)
@@ -2001,6 +2005,55 @@ mod tests {
         assert!(index.iter().any(|entry| {
             entry.path == added_path && entry.cwd == r"C:\Users\zuolan\Desktop\CCS2KEIL"
         }));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn request_records_only_read_the_supplied_rollout() {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "ai-session-viewer-codex-session-cost-{}-{unique}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+
+        let target = dir.join("rollout-target.jsonl");
+        let other = dir.join("rollout-other.jsonl");
+        let token_event = serde_json::json!({
+            "timestamp": "2026-08-26T00:00:00Z",
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "info": {
+                    "last_token_usage": {
+                        "input_tokens": 10,
+                        "output_tokens": 5
+                    }
+                }
+            }
+        });
+        write_rollout(&target, "target", r"C:\projects\target");
+        fs::OpenOptions::new()
+            .append(true)
+            .open(&target)
+            .and_then(|mut file| {
+                use std::io::Write;
+                writeln!(file, "{token_event}")
+            })
+            .unwrap();
+        write_rollout(&other, "other", r"C:\projects\other");
+
+        let records = request_records_for_file(&target);
+
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].session_id, "target");
+        assert_eq!(records[0].input_tokens, 10);
+        assert_eq!(records[0].output_tokens, 5);
+        assert_eq!(records[0].file_path, target.to_string_lossy().into_owned());
 
         fs::remove_dir_all(dir).unwrap();
     }

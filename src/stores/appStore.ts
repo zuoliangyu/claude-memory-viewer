@@ -48,6 +48,10 @@ const initialMessagesInFlight = new Map<
   string,
   Promise<TracedMessageResult<PaginatedMessages>>
 >();
+const sessionCostsInFlight = new Map<
+  string,
+  Promise<SessionCostSummary | null>
+>();
 
 export interface BackgroundRefreshContext {
   reason?: "startup" | "interval" | "file-watcher" | "chat-complete" | "action";
@@ -1097,17 +1101,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     const cached = get().sessionCosts[filePath];
     if (cached && !force) return cached;
     const requestSource = get().source;
-    try {
-      const summary = await api.getSessionCost(requestSource, filePath);
-      if (get().source !== requestSource) return null;
-      set((state) => ({
-        sessionCosts: { ...state.sessionCosts, [filePath]: summary },
-      }));
-      return summary;
-    } catch (e) {
-      console.error("Failed to load session cost:", e);
-      return null;
-    }
+    const key = `${requestSource}\u0000${normalizeFilePath(filePath)}`;
+    const existing = sessionCostsInFlight.get(key);
+    if (existing) return existing;
+
+    const request = (async () => {
+      try {
+        const summary = await api.getSessionCost(requestSource, filePath);
+        if (get().source !== requestSource) return null;
+        set((state) => ({
+          sessionCosts: { ...state.sessionCosts, [filePath]: summary },
+        }));
+        return summary;
+      } catch (e) {
+        console.error("Failed to load session cost:", e);
+        return null;
+      }
+    })().finally(() => {
+      if (sessionCostsInFlight.get(key) === request) {
+        sessionCostsInFlight.delete(key);
+      }
+    });
+    sessionCostsInFlight.set(key, request);
+    return request;
   },
 
   clearSelection: () => {
