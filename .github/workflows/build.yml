@@ -34,11 +34,14 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install frontend dependencies
         run: npm ci
+
+      - name: Script smoke checks
+        run: npm run check:scripts
 
       - name: TypeScript check
         run: npx tsc --noEmit
@@ -52,7 +55,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 'lts/*'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install frontend dependencies

@@ -1,16 +1,10 @@
 ﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
-AI Session Viewer 的统一开发、构建与维护菜单。
+AI Session Viewer 的 Windows 开发、构建与维护菜单。
 
 .PARAMETER Action
-跳过交互菜单并直接执行指定动作，供兼容脚本和自动化使用。
-
-.EXAMPLE
-.\menu.ps1
-
-.EXAMPLE
-.\menu.ps1 -Action dev-perf
+跳过交互菜单并直接执行指定动作。
 #>
 [CmdletBinding()]
 param(
@@ -21,134 +15,70 @@ param(
         "dev-web",
         "build",
         "build-web",
-        "analyze-perf"
+        "build-linux",
+        "deploy-rocky",
+        "clean",
+        "analyze-perf",
+        "check"
     )]
-    [string]$Action = "menu"
+    [string]$Action = "menu",
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$ActionArguments = @()
 )
 
 $ErrorActionPreference = "Stop"
 $script:MenuExitCode = 0
-
-function Invoke-DesktopDev {
-    param([switch]$PerfDiagnostics)
-
-    $previousBackendDiagnostics = [Environment]::GetEnvironmentVariable(
-        "ASV_PERF_DIAGNOSTICS",
-        [EnvironmentVariableTarget]::Process
-    )
-    $previousFrontendDiagnostics = [Environment]::GetEnvironmentVariable(
-        "VITE_ASV_PERF_DIAGNOSTICS",
-        [EnvironmentVariableTarget]::Process
-    )
-
-    try {
-        if ($PerfDiagnostics) {
-            $perfDirectory = Join-Path $PSScriptRoot "target\perf"
-            $perfLog = Join-Path $perfDirectory ("dev-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
-            New-Item -ItemType Directory -Force -Path $perfDirectory | Out-Null
-
-            $env:ASV_PERF_DIAGNOSTICS = "1"
-            $env:VITE_ASV_PERF_DIAGNOSTICS = "1"
-
-            Write-Host "[ASV-PERF] 开发性能诊断已启用" -ForegroundColor Cyan
-            Write-Host "[ASV-PERF] 日志文件: $perfLog"
-            Write-Host "[ASV-PERF] 分析入口: .\menu.ps1 -> 分析性能日志"
-            & npx tauri dev 2>&1 | Tee-Object -FilePath $perfLog
-        } else {
-            & npx tauri dev
-        }
-        $script:MenuExitCode = $LASTEXITCODE
-    } finally {
-        if ($PerfDiagnostics) {
-            [Environment]::SetEnvironmentVariable(
-                "ASV_PERF_DIAGNOSTICS",
-                $previousBackendDiagnostics,
-                [EnvironmentVariableTarget]::Process
-            )
-            [Environment]::SetEnvironmentVariable(
-                "VITE_ASV_PERF_DIAGNOSTICS",
-                $previousFrontendDiagnostics,
-                [EnvironmentVariableTarget]::Process
-            )
-        }
-    }
-}
-
-function Invoke-WebDev {
-    & npm run build:web
-    if ($LASTEXITCODE -ne 0) {
-        $script:MenuExitCode = $LASTEXITCODE
-        return
-    }
-
-    & cargo run -p session-web
-    $script:MenuExitCode = $LASTEXITCODE
-}
+$scriptsDirectory = Join-Path $PSScriptRoot "scripts"
 
 function Invoke-ChildPowerShell {
     param(
         [Parameter(Mandatory)]
-        [string]$Path
+        [string]$Name,
+        [string[]]$Arguments = @()
     )
 
-    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
-        throw "本机脚本不存在: $Path"
+    $path = Join-Path $scriptsDirectory $Name
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+        throw "脚本不存在: $path"
     }
 
     $powerShellPath = (Get-Process -Id $PID).Path
-    & $powerShellPath -NoProfile -ExecutionPolicy Bypass -File $Path
+    & $powerShellPath -NoProfile -ExecutionPolicy Bypass -File $path @Arguments
     $script:MenuExitCode = $LASTEXITCODE
-}
-
-function Invoke-DesktopBuild {
-    $localBuildScript = Join-Path $PSScriptRoot "scripts\build.ps1"
-    Invoke-ChildPowerShell -Path $localBuildScript
-}
-
-function Invoke-WebBuild {
-    & npm run build:web
-    if ($LASTEXITCODE -ne 0) {
-        $script:MenuExitCode = $LASTEXITCODE
-        return
-    }
-
-    & cargo build -p session-web --release
-    $script:MenuExitCode = $LASTEXITCODE
-    if ($script:MenuExitCode -eq 0) {
-        Write-Host "构建完成: target/release/session-web.exe" -ForegroundColor Green
-    }
 }
 
 function Invoke-ActionByName {
     param(
         [Parameter(Mandatory)]
-        [string]$Name
+        [string]$Name,
+        [string[]]$Arguments = @()
     )
 
     $script:MenuExitCode = 0
     switch ($Name) {
-        "dev" {
-            Invoke-DesktopDev
-        }
+        "dev" { Invoke-ChildPowerShell -Name "dev.ps1" -Arguments $Arguments }
         "dev-perf" {
-            Invoke-DesktopDev -PerfDiagnostics
+            Invoke-ChildPowerShell -Name "dev.ps1" -Arguments (@("-PerfDiagnostics") + $Arguments)
         }
-        "dev-web" {
-            Invoke-WebDev
-        }
-        "build" {
-            Invoke-DesktopBuild
-        }
-        "build-web" {
-            Invoke-WebBuild
-        }
+        "dev-web" { Invoke-ChildPowerShell -Name "dev-web.ps1" -Arguments $Arguments }
+        "build" { Invoke-ChildPowerShell -Name "build.ps1" -Arguments $Arguments }
+        "build-web" { Invoke-ChildPowerShell -Name "build-web.ps1" -Arguments $Arguments }
+        "build-linux" { Invoke-ChildPowerShell -Name "build-linux.ps1" -Arguments $Arguments }
+        "deploy-rocky" { Invoke-ChildPowerShell -Name "deploy-rocky.ps1" -Arguments $Arguments }
+        "clean" { Invoke-ChildPowerShell -Name "clean.ps1" -Arguments $Arguments }
         "analyze-perf" {
-            Invoke-ChildPowerShell -Path (Join-Path $PSScriptRoot "scripts\analyze-perf-log.ps1")
+            Invoke-ChildPowerShell -Name "analyze-perf-log.ps1" -Arguments $Arguments
         }
-        default {
-            throw "未知操作: $Name"
-        }
+        "check" { Invoke-ChildPowerShell -Name "check.ps1" -Arguments $Arguments }
+        default { throw "未知操作: $Name" }
     }
+}
+
+function Confirm-Action {
+    param([string]$Prompt)
+
+    $answer = (Read-Host "$Prompt [y/N]").Trim().ToLowerInvariant()
+    return $answer -in @("y", "yes", "是")
 }
 
 function Wait-ForMenu {
@@ -183,7 +113,7 @@ function Invoke-InteractiveAction {
 function Show-Menu {
     Clear-Host
     Write-Host "AI Session Viewer" -ForegroundColor Cyan
-    Write-Host "统一开发与构建菜单"
+    Write-Host "Windows 开发与构建菜单"
     Write-Host
     Write-Host "开发" -ForegroundColor DarkCyan
     Write-Host "  1. 桌面应用开发"
@@ -192,41 +122,52 @@ function Show-Menu {
     Write-Host
     Write-Host "构建" -ForegroundColor DarkCyan
     Write-Host "  4. 桌面安装包（本地，不生成更新签名）"
-    Write-Host "  5. Web 服务器（Windows）"
+    Write-Host "  5. Web 服务器"
+    Write-Host "  6. Linux 静态文件（Docker）"
     Write-Host
     Write-Host "维护" -ForegroundColor DarkCyan
-    Write-Host "  6. 分析性能日志"
+    Write-Host "  7. 部署到 Rocky Linux"
+    Write-Host "  8. 清理构建产物"
+    Write-Host "  9. 分析性能日志"
+    Write-Host " 10. 运行轻量检查"
     Write-Host
     Write-Host "  0. 退出"
     Write-Host
 }
 
-$originalLocation = (Get-Location).Path
-try {
-    Set-Location -LiteralPath $PSScriptRoot
+if ($Action -ne "menu") {
+    Invoke-ActionByName -Name $Action -Arguments $ActionArguments
+    exit $script:MenuExitCode
+}
 
-    if ($Action -ne "menu") {
-        Invoke-ActionByName -Name $Action
-        exit $script:MenuExitCode
-    }
-
-    while ($true) {
-        Show-Menu
-        $choice = (Read-Host "请选择操作").Trim()
-        switch ($choice) {
-            "1" { Invoke-InteractiveAction -Name "dev" -Title "桌面应用开发" }
-            "2" { Invoke-InteractiveAction -Name "dev-perf" -Title "桌面应用开发（性能诊断日志）" }
-            "3" { Invoke-InteractiveAction -Name "dev-web" -Title "Web 服务器开发" }
-            "4" { Invoke-InteractiveAction -Name "build" -Title "构建本地桌面安装包" }
-            "5" { Invoke-InteractiveAction -Name "build-web" -Title "构建 Web 服务器" }
-            "6" { Invoke-InteractiveAction -Name "analyze-perf" -Title "分析性能日志" }
-            "0" { return }
-            default {
-                Write-Host "无效选项: $choice" -ForegroundColor Yellow
-                Wait-ForMenu
+while ($true) {
+    Show-Menu
+    $choice = (Read-Host "请选择操作").Trim()
+    switch ($choice) {
+        "1" { Invoke-InteractiveAction -Name "dev" -Title "桌面应用开发" }
+        "2" {
+            Invoke-InteractiveAction -Name "dev-perf" -Title "桌面应用开发（性能诊断日志）"
+        }
+        "3" { Invoke-InteractiveAction -Name "dev-web" -Title "Web 服务器开发" }
+        "4" { Invoke-InteractiveAction -Name "build" -Title "构建本地桌面安装包" }
+        "5" { Invoke-InteractiveAction -Name "build-web" -Title "构建 Web 服务器" }
+        "6" { Invoke-InteractiveAction -Name "build-linux" -Title "构建 Linux 静态文件" }
+        "7" {
+            if (Confirm-Action "确认部署到 Rocky Linux？") {
+                Invoke-InteractiveAction -Name "deploy-rocky" -Title "部署到 Rocky Linux"
             }
         }
+        "8" {
+            if (Confirm-Action "确认清理构建产物？") {
+                Invoke-InteractiveAction -Name "clean" -Title "清理构建产物"
+            }
+        }
+        "9" { Invoke-InteractiveAction -Name "analyze-perf" -Title "分析性能日志" }
+        "10" { Invoke-InteractiveAction -Name "check" -Title "运行轻量检查" }
+        "0" { return }
+        default {
+            Write-Host "无效选项: $choice" -ForegroundColor Yellow
+            Wait-ForMenu
+        }
     }
-} finally {
-    Set-Location -LiteralPath $originalLocation
 }

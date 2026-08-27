@@ -1,26 +1,43 @@
-# 构建 Rocky Linux 9.4 可运行的 musl 静态单文件
-# 输出：session-web-linux-x86_64
+﻿#Requires -Version 5.1
+[CmdletBinding()]
+param(
+    [string]$BinaryName = "session-web-linux-x86_64",
+    [string]$ImageTag = "session-web-build"
+)
 
-$OutputEncoding = [System.Text.Encoding]::UTF8
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $ErrorActionPreference = "Stop"
-$BinaryName = "session-web-linux-x86_64"
-$ImageTag = "session-web-build"
-$ContainerName = "session-web-tmp"
+$root = Split-Path -Parent $PSScriptRoot
+$containerName = "session-web-tmp-$PID"
+$containerCreated = $false
 
-Write-Host ">>> 构建 Docker 镜像（musl 静态链接）..." -ForegroundColor Cyan
-docker build -t $ImageTag .
-if ($LASTEXITCODE -ne 0) { Write-Error "Docker build 失败"; exit 1 }
+Push-Location -LiteralPath $root
+try {
+    Write-Host ">>> 构建 Linux musl Docker 镜像..." -ForegroundColor Cyan
+    & docker build -t $ImageTag .
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker 镜像构建失败"
+    }
 
-Write-Host ">>> 提取二进制文件..." -ForegroundColor Cyan
-docker create --name $ContainerName $ImageTag | Out-Null
-docker cp "${ContainerName}:/usr/local/bin/session-web" "./$BinaryName"
-docker rm $ContainerName | Out-Null
+    Write-Host ">>> 提取静态二进制..." -ForegroundColor Cyan
+    & docker create --name $containerName $ImageTag | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker 临时容器创建失败"
+    }
+    $containerCreated = $true
 
-if (Test-Path "./$BinaryName") {
-    $size = (Get-Item "./$BinaryName").Length / 1MB
-    Write-Host ">>> 完成！文件：./$BinaryName ($("{0:N1}" -f $size) MB)" -ForegroundColor Green
-} else {
-    Write-Error "提取失败，未找到文件"
-    exit 1
+    & docker cp ($containerName + ":/usr/local/bin/session-web") "./$BinaryName"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Docker 二进制提取失败"
+    }
+    if (-not (Test-Path -LiteralPath "./$BinaryName" -PathType Leaf)) {
+        throw "提取完成后未找到文件: $BinaryName"
+    }
+
+    $size = (Get-Item -LiteralPath "./$BinaryName").Length / 1MB
+    Write-Host (">>> 完成: ./{0} ({1:N1} MB)" -f $BinaryName, $size) -ForegroundColor Green
+} finally {
+    if ($containerCreated) {
+        & docker rm -f $containerName | Out-Null
+    }
+    Pop-Location
 }

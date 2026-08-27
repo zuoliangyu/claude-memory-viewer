@@ -1,4 +1,4 @@
-#Requires -Version 5.1
+﻿#Requires -Version 5.1
 <#
 .SYNOPSIS
     One-shot cleanup of build artifacts for this Tauri + Vite + Cargo project.
@@ -35,6 +35,9 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
+if (-not (Test-Path -LiteralPath (Join-Path $root "package.json") -PathType Leaf)) {
+    throw "无法确认仓库根目录: $root"
+}
 
 # Build artifacts cleaned by default. Order does not matter; each is removed
 # independently and missing ones are skipped.
@@ -80,6 +83,7 @@ Write-Host "Cleaning build artifacts in $root" -ForegroundColor Cyan
 
 $freed = [int64]0
 $removed = 0
+$failures = 0
 
 foreach ($rel in $targets) {
     $full = Join-Path $root $rel
@@ -100,6 +104,7 @@ foreach ($rel in $targets) {
             Write-Host ("  removed {0}" -f $rel) -ForegroundColor Green
         }
     } catch {
+        $failures++
         # Most common cause: a file is locked by a running `tauri dev` / editor.
         Write-Host ("  FAILED  {0} -> {1}" -f $rel, $_.Exception.Message) -ForegroundColor Yellow
     }
@@ -109,4 +114,8 @@ if ($Stats) {
     Write-Host ("Done. Removed {0} item(s), freed {1}." -f $removed, (Format-Size $freed)) -ForegroundColor Cyan
 } else {
     Write-Host ("Done. Removed {0} item(s)." -f $removed) -ForegroundColor Cyan
+}
+
+if ($failures -gt 0) {
+    throw "Failed to remove $failures target(s)."
 }

@@ -335,7 +335,7 @@ Skills 页面中的「MCP / 插件」支持比较两个 `session-web` 节点的�
 
 ### 前置要求
 
-- [Node.js](https://nodejs.org/) >= 18
+- [Node.js](https://nodejs.org/) >= 22（项目统一使用 22.x，仓库提供 `.nvmrc`）
 - [Rust](https://www.rust-lang.org/tools/install) >= 1.75
 - 至少使用过以下一种 CLI：
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code)（`~/.claude/projects/` 目录存在）
@@ -363,6 +363,14 @@ Windows 可直接打开统一菜单：
 .\menu.ps1
 ```
 
+Linux/macOS 使用对应的 Bash 菜单：
+
+```bash
+./menu.sh
+```
+
+完整脚本和参数说明见 [scripts/README.md](./scripts/README.md)。
+
 也可以继续直接执行底层命令：
 
 ```bash
@@ -377,7 +385,7 @@ npm run dev:web
 
 ### 构建
 
-Windows 用户可通过 `.\menu.ps1` 选择桌面或 Web 构建。菜单中的桌面构建仅生成本地安装包，会临时关闭 updater 产物生成，因此不需要发布签名私钥；正式发布仍由 CI 使用仓库 Secrets 完成签名。下列命令仍可独立使用。
+Windows 使用 `.\menu.ps1`，Linux/macOS 使用 `./menu.sh`。菜单中的桌面构建仅生成本地安装包，会临时关闭 updater 产物生成，因此不需要发布签名私钥；正式发布仍由 CI 使用仓库 Secrets 完成签名。下列命令仍可独立使用。
 
 **桌面应用：**
 

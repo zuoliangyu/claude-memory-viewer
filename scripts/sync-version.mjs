@@ -1,8 +1,14 @@
-import { readFileSync, writeFileSync, existsSync } from "fs";
-import { resolve } from "path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = resolve(import.meta.dirname, "..");
-const mode = process.argv[2]; // "sync" or "check"
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const mode = process.argv[2] ?? "sync";
+if (mode !== "sync" && mode !== "check") {
+  console.error("[sync-version] Unknown mode: " + mode);
+  console.error("[sync-version] Expected: sync or check");
+  process.exit(2);
+}
 
 // 1. Read version from package.json (single source of truth)
 const pkg = JSON.parse(readFileSync(resolve(root, "package.json"), "utf-8"));

@@ -8,13 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Added
 
-- 新增 PowerShell 统一入口 `menu.ps1`，集中提供桌面/Web 开发、桌面/Web 构建和性能日志分析菜单，并支持 `-Action` 参数供自动化直接调用；根目录仅保留该入口，其余 PowerShell 脚本统一归档到 `scripts/`。
+- 新增 Windows `menu.ps1` 与 Linux/macOS `menu.sh` 统一入口，以及成对的 PowerShell/Bash 开发、构建、部署、清理、性能分析和轻量检查脚本；根目录只保留菜单，具体实现统一放在 `scripts/`。
 
 ### Changed
 
 - 侧边栏会话数据源切换改为单一选择器和纵向菜单，避免 Claude、Codex、Grok 在窄侧栏中横向拥挤，并为后续增加数据源保留空间。
 - 开发性能诊断默认关闭；只有在 `menu.ps1` 中明确选择性能诊断，或通过 `scripts/dev.ps1 -PerfDiagnostics` / `menu.ps1 -Action dev-perf` 显式请求时才记录日志。
 - 本地桌面构建通过临时 Tauri 配置关闭 updater 产物生成，不再保存或要求发布签名私钥密码；正式发布与 CI 签名流程保持不变。
+- 项目开发基线升级为 Node.js 22，CI、`.nvmrc`、package engines 和开发文档保持一致。
+- 性能日志分析收敛为跨平台 Node 实现，PowerShell/Bash 仅负责参数转发；节点配置与时区检查接入 `npm run check:scripts` 和菜单。
 
 ### Fixed
 

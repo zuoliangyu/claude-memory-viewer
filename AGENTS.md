@@ -26,10 +26,18 @@ npx tauri build
 npm run build:web && cargo build -p session-web --release
 
 # 本地开发/构建（PowerShell）
-.\menu.ps1                     # 统一菜单：桌面/Web 开发、构建和性能日志
+.\menu.ps1                     # Windows 统一菜单
 .\scripts\dev.ps1              # 兼容入口：直接启动桌面开发
 .\scripts\dev.ps1 -PerfDiagnostics
 .\scripts\build.ps1            # 本地构建，不生成 updater 产物，无需签名密钥
+
+# Linux/macOS
+./menu.sh                       # Bash 统一菜单
+./scripts/dev.sh --perf         # 显式开启性能诊断
+./scripts/build.sh              # 本地构建，不生成 updater 产物
+
+# Node 轻量检查（Node.js >= 22）
+npm run check:scripts
 
 # 代码检查
 cargo clippy --workspace -- -D warnings   # Rust lint（全 workspace）
@@ -112,8 +120,11 @@ CSS 变量定义在 `index.css`（`:root` 浅色，`.dark` 深色）。Tailwind 
 
 位于 `scripts/` 目录：
 
+- **`*.ps1` / `*.sh`** — Windows 与 Linux/macOS 对称的开发、构建、部署、清理、性能分析和轻量检查入口；完整参数见 `scripts/README.md`。
 - **`generate-icons.mjs`** — 读取 `public/logo.png`，对比与 `src-tauri/icons/icon.png` 的修改时间，仅在 logo 变更时执行 `tauri icon` 重新生成。已挂载到 `dev` 和 `build` 脚本。
 - **`sync-version.mjs`** — 版本号唯一来源：`package.json`。`sync` 模式写入 3 个 `Cargo.toml`（src-tauri、session-core、session-web）+ `tauri.conf.json`；`check` 模式（`build` 时使用）版本不一致则报错阻止构建。
+- **`check-project.mjs`** — 运行节点 URL 和时区格式化的轻量回归检查，由 `npm run check:scripts` 和两个平台菜单调用。
+- **`analyze-perf-log.mjs`** — 跨平台性能日志分析核心，PowerShell/Bash 包装器共享同一实现。
 
 ## 测试环境
 
