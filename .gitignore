@@ -21,14 +21,6 @@ Thumbs.db
 .env
 .env.*
 
-# Local build scripts (contain signing password)
-build.ps1
-dev-web.ps1
-build-web.ps1
-build-linux.ps1
-deploy-rocky.ps1
-clean.ps1
-
 # Claude Code
 CLAUDE.md
 .claude/

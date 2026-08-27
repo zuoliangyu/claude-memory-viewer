@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Path,
     [double]$IpcThresholdMs = 5000
 )
@@ -10,7 +10,7 @@ if (-not $Path) {
         Sort-Object LastWriteTime -Descending |
         Select-Object -First 1
     if (-not $latest) {
-        throw "未找到 target\perf\dev-*.log，请先通过 .\dev.ps1 复现问题。"
+        throw "未找到 target\perf\dev-*.log，请先通过 .\menu.ps1 选择「桌面应用开发（性能诊断日志）」复现问题。"
     }
     $Path = $latest.FullName
 }

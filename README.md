@@ -355,7 +355,17 @@ Skills 页面中的「MCP / 插件」支持比较两个 `session-web` 节点的�
 git clone https://github.com/zuoliangyu/AI-Session-Viewer.git
 cd AI-Session-Viewer
 npm install
+```
 
+Windows 可直接打开统一菜单：
+
+```powershell
+.\menu.ps1
+```
+
+也可以继续直接执行底层命令：
+
+```bash
 # 桌面应用开发（Tauri + Vite HMR）
 npx tauri dev
 
@@ -366,6 +376,8 @@ npm run dev:web
 > **注意**: 桌面应用不能只运行 `npm run dev`，那只会启动 Vite 前端。必须用 `npx tauri dev` 才能同时编译 Rust 后端并启动完整应用。
 
 ### 构建
+
+Windows 用户可通过 `.\menu.ps1` 选择桌面或 Web 构建。菜单中的桌面构建仅生成本地安装包，会临时关闭 updater 产物生成，因此不需要发布签名私钥；正式发布仍由 CI 使用仓库 Secrets 完成签名。下列命令仍可独立使用。
 
 **桌面应用：**
 

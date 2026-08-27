@@ -6,9 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- 新增 PowerShell 统一入口 `menu.ps1`，集中提供桌面/Web 开发、桌面/Web 构建和性能日志分析菜单，并支持 `-Action` 参数供自动化直接调用；根目录仅保留该入口，其余 PowerShell 脚本统一归档到 `scripts/`。
+
 ### Changed
 
 - 侧边栏会话数据源切换改为单一选择器和纵向菜单，避免 Claude、Codex、Grok 在窄侧栏中横向拥挤，并为后续增加数据源保留空间。
+- 开发性能诊断默认关闭；只有在 `menu.ps1` 中明确选择性能诊断，或通过 `scripts/dev.ps1 -PerfDiagnostics` / `menu.ps1 -Action dev-perf` 显式请求时才记录日志。
+- 本地桌面构建通过临时 Tauri 配置关闭 updater 产物生成，不再保存或要求发布签名私钥密码；正式发布与 CI 签名流程保持不变。
 
 ### Fixed
 
