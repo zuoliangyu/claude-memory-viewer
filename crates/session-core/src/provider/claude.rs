@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::OnceLock;
@@ -41,10 +41,9 @@ struct ProjectMeta {
     alias: Option<String>,
 }
 
-// v3 (2026-05): cache 现在存"全分类"会话（Valid + Empty + Corrupt 都在同一个
-// Vec 里，按 status 字段区分）。v2 只存 Valid，反序列化后 get_invalid_sessions
-// 拿不到 Empty/Corrupt 会误以为没有；直接 bump 版本号让老缓存被丢弃重扫。
-const CACHE_VERSION: u32 = 3;
+// v4: persist a cheap file signature for every project. Startup stats the
+// tree and only drops projects changed while the viewer was not running.
+const CACHE_VERSION: u32 = 4;
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
@@ -60,18 +59,108 @@ struct ClaudeCacheFile {
 #[serde(rename_all = "camelCase")]
 struct CachedProjects {
     entries: Vec<ProjectEntry>,
+    signatures: HashMap<String, ProjectSignature>,
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct CachedSessions {
     entries: Vec<SessionIndexEntry>,
+    signature: ProjectSignature,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct ProjectSignature {
+    jsonl_files: BTreeMap<String, FileSignature>,
+    sessions_index: Option<FileSignature>,
+    project_meta: Option<FileSignature>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Default, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+struct FileSignature {
+    modified_key: u64,
+    len: u64,
 }
 
 fn cache_path() -> Option<PathBuf> {
     let dir = dirs::config_dir()?.join("ai-session-viewer");
     let _ = fs::create_dir_all(&dir);
     Some(dir.join("claude-list-cache.json"))
+}
+
+fn file_signature(path: &Path) -> Option<FileSignature> {
+    let metadata = fs::metadata(path).ok()?;
+    let duration = metadata
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    Some(FileSignature {
+        modified_key: duration
+            .as_secs()
+            .saturating_mul(1_000_000_000)
+            .saturating_add(duration.subsec_nanos() as u64),
+        len: metadata.len(),
+    })
+}
+
+fn project_signature(project_dir: &Path) -> Option<ProjectSignature> {
+    let mut jsonl_files = BTreeMap::new();
+    for entry in fs::read_dir(project_dir).ok()?.flatten() {
+        let path = entry.path();
+        if !path.is_file() || path.extension().map(|ext| ext != "jsonl").unwrap_or(true) {
+            continue;
+        }
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        jsonl_files.insert(name.to_string_lossy().into_owned(), file_signature(&path)?);
+    }
+
+    Some(ProjectSignature {
+        jsonl_files,
+        sessions_index: file_signature(&project_dir.join("sessions-index.json")),
+        project_meta: file_signature(&project_dir.join(".project-meta.json")),
+    })
+}
+
+fn collect_project_signatures(projects_dir: &Path) -> HashMap<String, ProjectSignature> {
+    let Ok(entries) = fs::read_dir(projects_dir) else {
+        return HashMap::new();
+    };
+
+    entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            let id = path.file_name()?.to_str()?.to_string();
+            project_signature(&path).map(|signature| (id, signature))
+        })
+        .collect()
+}
+
+fn reconcile_cache_with_signatures(
+    mut cache: ClaudeCacheFile,
+    current: &HashMap<String, ProjectSignature>,
+) -> (ClaudeCacheFile, bool) {
+    let projects_changed = cache
+        .projects
+        .as_ref()
+        .map(|projects| &projects.signatures != current)
+        .unwrap_or(false);
+    if projects_changed {
+        cache.projects = None;
+    }
+
+    let session_count = cache.sessions_by_project.len();
+    cache.sessions_by_project.retain(|project_id, cached| {
+        current.get(project_id) == Some(&cached.signature)
+    });
+    let sessions_changed = session_count != cache.sessions_by_project.len();
+
+    (cache, projects_changed || sessions_changed)
 }
 
 fn read_cache_from_disk() -> ClaudeCacheFile {
@@ -94,6 +183,14 @@ fn read_cache_from_disk() -> ClaudeCacheFile {
         return ClaudeCacheFile::default();
     }
 
+    let current = get_projects_dir()
+        .filter(|dir| dir.exists())
+        .map(|dir| collect_project_signatures(&dir))
+        .unwrap_or_default();
+    let (cache, changed) = reconcile_cache_with_signatures(cache, &current);
+    if changed {
+        save_cache(&cache);
+    }
     cache
 }
 
@@ -126,11 +223,16 @@ fn cached_projects() -> Option<Vec<ProjectEntry>> {
 }
 
 fn store_projects_cache(entries: &[ProjectEntry]) {
+    let signatures = get_projects_dir()
+        .filter(|dir| dir.exists())
+        .map(|dir| collect_project_signatures(&dir))
+        .unwrap_or_default();
     let cache = {
         let mut cache = cache_state().lock();
         cache.version = CACHE_VERSION;
         cache.projects = Some(CachedProjects {
             entries: entries.to_vec(),
+            signatures,
         });
         cache.clone()
     };
@@ -146,6 +248,9 @@ fn cached_sessions(project_id: &str) -> Option<Vec<SessionIndexEntry>> {
 }
 
 fn store_sessions_cache(project_id: &str, entries: &[SessionIndexEntry]) {
+    let signature = get_projects_dir()
+        .and_then(|dir| project_signature(&dir.join(project_id)))
+        .unwrap_or_default();
     let cache = {
         let mut cache = cache_state().lock();
         cache.version = CACHE_VERSION;
@@ -153,6 +258,7 @@ fn store_sessions_cache(project_id: &str, entries: &[SessionIndexEntry]) {
             project_id.to_string(),
             CachedSessions {
                 entries: entries.to_vec(),
+                signature,
             },
         );
         cache.clone()
@@ -1079,4 +1185,67 @@ fn count_valid_jsonl_files(dir: &Path) -> usize {
                 .count()
         })
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn signature(modified_key: u64) -> ProjectSignature {
+        ProjectSignature {
+            jsonl_files: BTreeMap::from([(
+                "session.jsonl".to_string(),
+                FileSignature {
+                    modified_key,
+                    len: 128,
+                },
+            )]),
+            sessions_index: None,
+            project_meta: None,
+        }
+    }
+
+    #[test]
+    fn startup_reconcile_only_drops_changed_project_sessions() {
+        let alpha = signature(1);
+        let beta = signature(2);
+        let cache = ClaudeCacheFile {
+            version: CACHE_VERSION,
+            projects: Some(CachedProjects {
+                entries: Vec::new(),
+                signatures: HashMap::from([
+                    ("alpha".to_string(), alpha.clone()),
+                    ("beta".to_string(), beta.clone()),
+                ]),
+            }),
+            sessions_by_project: HashMap::from([
+                (
+                    "alpha".to_string(),
+                    CachedSessions {
+                        entries: Vec::new(),
+                        signature: alpha.clone(),
+                    },
+                ),
+                (
+                    "beta".to_string(),
+                    CachedSessions {
+                        entries: Vec::new(),
+                        signature: beta,
+                    },
+                ),
+            ]),
+        };
+        let current = HashMap::from([
+            ("alpha".to_string(), alpha),
+            ("beta".to_string(), signature(3)),
+            ("new-project".to_string(), signature(4)),
+        ]);
+
+        let (cache, changed) = reconcile_cache_with_signatures(cache, &current);
+
+        assert!(changed);
+        assert!(cache.projects.is_none());
+        assert!(cache.sessions_by_project.contains_key("alpha"));
+        assert!(!cache.sessions_by_project.contains_key("beta"));
+    }
 }

@@ -2,9 +2,10 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::http::StatusCode;
 use axum::response::Response;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::broadcast;
 
 use crate::{require_ws_auth, AppToken, WsTicketStore};
@@ -13,9 +14,11 @@ use crate::{require_ws_auth, AppToken, WsTicketStore};
 /// Docker volume mounts can produce frequent inotify events,
 /// so use a longer debounce to avoid flooding clients.
 const DEBOUNCE_DURATION: Duration = Duration::from_millis(1000);
+const MAX_BATCH_DURATION: Duration = Duration::from_secs(2);
 
 use session_core::parser::path_encoder::get_projects_dir;
 use session_core::provider::{claude, codex, grok};
+use session_core::watcher_batch::collect_until_quiet;
 
 /// Shared broadcast sender for file change events
 pub type FsChangeTx = Arc<broadcast::Sender<Vec<String>>>;
@@ -80,68 +83,66 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
         }
     }
 
-    let mut last_emit = Instant::now() - DEBOUNCE_DURATION;
+    while let Ok(first) = notify_rx.recv() {
+        let events = collect_until_quiet(first, DEBOUNCE_DURATION, MAX_BATCH_DURATION, |timeout| {
+            notify_rx.recv_timeout(timeout)
+        });
+        let mut changed = HashSet::new();
+        for event in events {
+            match event {
+                Ok(event) => {
+                    changed.extend(event.paths.into_iter().filter(|path| {
+                        path.extension()
+                            .map(|ext| ext == "jsonl" || ext == "json")
+                            .unwrap_or(false)
+                    }));
+                }
+                Err(error) => tracing::warn!("Watch error: {error}"),
+            }
+        }
 
-    for event in notify_rx {
-        match event {
-            Ok(event) => {
-                let relevant = event.paths.iter().any(|p| {
-                    p.extension()
-                        .map(|e| e == "jsonl" || e == "json")
-                        .unwrap_or(false)
-                });
-
-                if relevant && last_emit.elapsed() >= DEBOUNCE_DURATION {
-                    // Surgically update only the affected projects/files (same
-                    // path-partitioned approach as the Tauri watcher) instead of
-                    // wiping the whole cache on every change.
-                    if let Some(dir) = get_projects_dir() {
-                        let claude_paths: Vec<std::path::PathBuf> = event
-                            .paths
-                            .iter()
-                            .filter(|p| p.starts_with(&dir))
-                            .cloned()
-                            .collect();
-                        if !claude_paths.is_empty() {
-                            claude::invalidate_paths(&claude_paths);
-                        }
-                    }
-                    if let Some(dir) = codex::get_sessions_dir() {
-                        let codex_paths: Vec<std::path::PathBuf> = event
-                            .paths
-                            .iter()
-                            .filter(|p| p.starts_with(&dir))
-                            .cloned()
-                            .collect();
-                        if !codex_paths.is_empty() {
-                            codex::invalidate_paths(&codex_paths);
-                        }
-                    }
-                    if let Some(dir) = grok::get_sessions_dir() {
-                        let grok_paths: Vec<PathBuf> = event
-                            .paths
-                            .iter()
-                            .filter(|path| path.starts_with(&dir))
-                            .cloned()
-                            .collect();
-                        if !grok_paths.is_empty() {
-                            grok::invalidate_paths(&grok_paths);
-                        }
-                    }
-
-                    let paths: Vec<String> = event
-                        .paths
-                        .iter()
-                        .map(|p| p.to_string_lossy().to_string())
-                        .collect();
-
-                    let _ = tx_clone.send(paths);
-                    last_emit = Instant::now();
+        if !changed.is_empty() {
+            let paths: Vec<PathBuf> = changed.into_iter().collect();
+            // Surgically update only the affected projects/files (same
+            // path-partitioned approach as the Tauri watcher) instead of
+            // wiping the whole cache on every change.
+            if let Some(dir) = get_projects_dir() {
+                let claude_paths: Vec<std::path::PathBuf> = paths
+                    .iter()
+                    .filter(|p| p.starts_with(&dir))
+                    .cloned()
+                    .collect();
+                if !claude_paths.is_empty() {
+                    claude::invalidate_paths(&claude_paths);
                 }
             }
-            Err(e) => {
-                tracing::warn!("Watch error: {}", e);
+            if let Some(dir) = codex::get_sessions_dir() {
+                let codex_paths: Vec<std::path::PathBuf> = paths
+                    .iter()
+                    .filter(|p| p.starts_with(&dir))
+                    .cloned()
+                    .collect();
+                if !codex_paths.is_empty() {
+                    codex::invalidate_paths(&codex_paths);
+                }
             }
+            if let Some(dir) = grok::get_sessions_dir() {
+                let grok_paths: Vec<PathBuf> = paths
+                    .iter()
+                    .filter(|path| path.starts_with(&dir))
+                    .cloned()
+                    .collect();
+                if !grok_paths.is_empty() {
+                    grok::invalidate_paths(&grok_paths);
+                }
+            }
+
+            let paths: Vec<String> = paths
+                .iter()
+                .map(|p| p.to_string_lossy().to_string())
+                .collect();
+
+            let _ = tx_clone.send(paths);
         }
     }
 }
