@@ -643,21 +643,22 @@ fn scan_session_file(path: &Path) -> SessionFileScan {
                             has_visible_activity = true;
                         }
                     }
-                } else if payload_type == "function_call"
-                    && payload
-                        .get("name")
-                        .and_then(|value| value.as_str())
-                        .is_some_and(|name| !name.trim().is_empty())
-                {
-                    has_visible_activity = true;
-                } else if payload_type == "function_call_output"
-                    && payload.get("output").is_some_and(value_has_visible_content)
-                {
-                    has_visible_activity = true;
-                } else if payload_type == "reasoning"
-                    && extract_reasoning_text(payload).is_some_and(|text| !text.trim().is_empty())
-                {
-                    has_visible_activity = true;
+                } else {
+                    let has_visible_content = match payload_type {
+                        "function_call" => payload
+                            .get("name")
+                            .and_then(|value| value.as_str())
+                            .is_some_and(|name| !name.trim().is_empty()),
+                        "function_call_output" => {
+                            payload.get("output").is_some_and(value_has_visible_content)
+                        }
+                        "reasoning" => extract_reasoning_text(payload)
+                            .is_some_and(|text| !text.trim().is_empty()),
+                        _ => false,
+                    };
+                    if has_visible_content {
+                        has_visible_activity = true;
+                    }
                 }
             }
         }
