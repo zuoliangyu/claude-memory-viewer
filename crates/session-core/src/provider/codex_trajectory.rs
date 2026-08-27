@@ -31,6 +31,9 @@ const MIN_PAGE_RECORDS: usize = 50;
 const MAX_PAGE_RECORDS: usize = 1_000;
 const FAST_TAIL_BYTES: u64 = 8 * 1024 * 1024;
 
+type RolloutIndex = HashMap<String, PathBuf>;
+type RolloutIndexCache = Option<(PathBuf, RolloutIndex)>;
+
 #[derive(Clone)]
 struct Segment {
     path: PathBuf,
@@ -331,7 +334,7 @@ fn find_rollout_in_directory(directory: Option<&Path>, id: &str) -> Option<PathB
         })
 }
 
-fn rollout_index() -> HashMap<String, PathBuf> {
+fn rollout_index() -> RolloutIndex {
     let Some(home) = codex_home() else {
         return HashMap::new();
     };
@@ -355,8 +358,8 @@ fn rollout_index() -> HashMap<String, PathBuf> {
     index
 }
 
-fn cached_rollout_index() -> HashMap<String, PathBuf> {
-    static INDEX: OnceLock<Mutex<Option<(PathBuf, HashMap<String, PathBuf>)>>> = OnceLock::new();
+fn cached_rollout_index() -> RolloutIndex {
+    static INDEX: OnceLock<Mutex<RolloutIndexCache>> = OnceLock::new();
     let Some(home) = codex_home() else {
         return HashMap::new();
     };
