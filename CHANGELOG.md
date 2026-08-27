@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ### Changed
 
-- 侧边栏会话数据源切换改为带明确字段标签的单一选择器和纵向菜单，避免 Claude、Codex、Grok 在窄侧栏中横向拥挤；同时加入切换提示与 Claude 品牌标记，提升首次使用时的可发现性。
+- 侧边栏会话来源改为始终可见的纵向品牌列表，Claude、Codex、Grok 使用各自品牌图标与统一激活态；节点选择器下移到独立层级，避免窄侧栏中的横向拥挤与控件堆叠。
 - 开发性能诊断默认关闭；只有在 `menu.ps1` 中明确选择性能诊断，或通过 `scripts/dev.ps1 -PerfDiagnostics` / `menu.ps1 -Action dev-perf` 显式请求时才记录日志。
 - 本地桌面构建通过临时 Tauri 配置关闭 updater 产物生成，不再保存或要求发布签名私钥密码；正式发布与 CI 签名流程保持不变。
 - 项目开发基线升级为 Node.js 22，CI、`.nvmrc`、package engines 和开发文档保持一致。
