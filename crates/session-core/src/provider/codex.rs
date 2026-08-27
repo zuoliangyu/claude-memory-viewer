@@ -218,6 +218,31 @@ fn cache_state() -> &'static Mutex<CodexDiskCache> {
     CACHE_STATE.get_or_init(|| Mutex::new(read_disk_cache()))
 }
 
+fn file_index_build_lock() -> &'static Mutex<()> {
+    static BUILD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    BUILD_LOCK.get_or_init(|| Mutex::new(()))
+}
+
+fn get_or_build_singleflight<T, C, B, S>(lock: &Mutex<()>, mut cached: C, build: B, store: S) -> T
+where
+    C: FnMut() -> Option<T>,
+    B: FnOnce() -> T,
+    S: FnOnce(&T),
+{
+    if let Some(value) = cached() {
+        return value;
+    }
+
+    let _guard = lock.lock();
+    if let Some(value) = cached() {
+        return value;
+    }
+
+    let value = build();
+    store(&value);
+    value
+}
+
 fn save_disk_cache(cache: &CodexDiskCache) {
     if let Some(path) = disk_cache_path() {
         if let Ok(json) = serde_json::to_string(cache) {
@@ -299,6 +324,7 @@ fn clear_disk_cache() {
 }
 
 pub fn invalidate_sessions_cache() {
+    let _guard = file_index_build_lock().lock();
     *cache_state().lock() = CodexDiskCache::default();
     clear_message_cache();
     clear_disk_cache();
@@ -788,16 +814,17 @@ fn project_key_for(fm: &CodexFileMeta) -> String {
 /// then derived from this in-memory index.
 fn build_file_index() -> Vec<CodexFileMeta> {
     let files = scan_all_session_files();
-    crate::scan_progress::begin(crate::scan_progress::Phase::Index, files.len() as u64);
+    let progress =
+        crate::scan_progress::begin(crate::scan_progress::Phase::Index, files.len() as u64);
     let index = files
         .into_par_iter()
         .filter_map(|file_path| {
             let meta = file_meta_for(&file_path);
-            crate::scan_progress::inc();
+            crate::scan_progress::inc(progress);
             meta
         })
         .collect();
-    crate::scan_progress::finish();
+    crate::scan_progress::finish(progress);
     index
 }
 
@@ -859,6 +886,11 @@ pub fn invalidate_paths(changed: &[PathBuf]) {
         return;
     }
 
+    // A cold index build and watcher invalidation must be ordered. Otherwise
+    // the watcher can observe an empty cache, return, and then be overwritten
+    // by a scan that started before the file change.
+    let _guard = file_index_build_lock().lock();
+
     // No warm index → nothing to preserve; drop derived caches so they rebuild
     // lazily (a single parallel scan), and we're done.
     if cache_state().lock().file_index.is_none() {
@@ -907,12 +939,12 @@ pub fn invalidate_paths(changed: &[PathBuf]) {
 }
 
 fn load_or_build_file_index() -> Vec<CodexFileMeta> {
-    if let Some(index) = cached_file_index() {
-        return index;
-    }
-    let index = build_file_index();
-    store_file_index(&index);
-    index
+    get_or_build_singleflight(
+        file_index_build_lock(),
+        cached_file_index,
+        build_file_index,
+        |index| store_file_index(index),
+    )
 }
 
 /// Whether an indexed file belongs to the given project id. Unified across all
@@ -1892,7 +1924,49 @@ fn truncate_string(s: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Barrier;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn concurrent_cache_misses_share_one_index_build() {
+        let build_lock = Mutex::new(());
+        let cache = Mutex::new(None);
+        let build_count = AtomicUsize::new(0);
+        let start = Barrier::new(4);
+
+        std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..4)
+                .map(|_| {
+                    scope.spawn(|| {
+                        let mut first_lookup = true;
+                        get_or_build_singleflight(
+                            &build_lock,
+                            || {
+                                let value = *cache.lock();
+                                if first_lookup {
+                                    first_lookup = false;
+                                    start.wait();
+                                }
+                                value
+                            },
+                            || {
+                                build_count.fetch_add(1, Ordering::SeqCst);
+                                42
+                            },
+                            |value| *cache.lock() = Some(*value),
+                        )
+                    })
+                })
+                .collect();
+
+            for handle in handles {
+                assert_eq!(handle.join().unwrap(), 42);
+            }
+        });
+
+        assert_eq!(build_count.load(Ordering::SeqCst), 1);
+    }
 
     fn write_rollout(path: &Path, id: &str, cwd: &str) {
         let row = serde_json::json!({

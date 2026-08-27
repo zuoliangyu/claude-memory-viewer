@@ -407,7 +407,7 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
         .collect();
 
     // Parallel processing: read index.json + count files for each project dir
-    scan_progress::begin(Phase::Projects, dir_entries.len() as u64);
+    let progress = scan_progress::begin(Phase::Projects, dir_entries.len() as u64);
     let mut projects: Vec<ProjectEntry> = dir_entries
         .into_par_iter()
         .filter_map(|path| {
@@ -473,11 +473,11 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
                 is_virtual: false,
             })
             })();
-            scan_progress::inc();
+            scan_progress::inc(progress);
             result
         })
         .collect();
-    scan_progress::finish();
+    scan_progress::finish(progress);
 
     projects.sort_by(|a, b| b.last_modified.cmp(&a.last_modified));
     Ok(projects)
@@ -646,16 +646,16 @@ fn scan_project_dir_all(project_dir: &Path) -> Vec<SessionIndexEntry> {
         Err(_) => return Vec::new(),
     };
 
-    scan_progress::begin(Phase::Sessions, entries.len() as u64);
+    let progress = scan_progress::begin(Phase::Sessions, entries.len() as u64);
     let result = entries
         .into_par_iter()
         .filter_map(|p| {
             let entry = scan_single_session_file(p);
-            scan_progress::inc();
+            scan_progress::inc(progress);
             entry
         })
         .collect();
-    scan_progress::finish();
+    scan_progress::finish(progress);
     result
 }
 

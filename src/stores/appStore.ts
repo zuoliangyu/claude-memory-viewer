@@ -54,7 +54,7 @@ const sessionCostsInFlight = new Map<
 >();
 
 export interface BackgroundRefreshContext {
-  reason?: "startup" | "interval" | "file-watcher" | "chat-complete" | "action";
+  reason?: "interval" | "file-watcher" | "chat-complete" | "action";
   changedPaths?: string[];
 }
 
@@ -1292,15 +1292,6 @@ export const useAppStore = create<AppState>((set, get) => ({
         listsChanged,
       },
     );
-
-    if (reason === "startup") {
-      recordPerfDiagnostic("messages.refresh_skipped", undefined, {
-        stage: "background",
-        reason: "startup-list-refresh",
-        refreshReason: reason,
-      });
-      return;
-    }
 
     // 静默刷新当前会话消息（仅当窗口贴在尾部，不打断用户上翻历史/跳转后正在浏览中段）
     const { selectedFilePath, loadedEnd, messagesTotal, messagesLoading, source: currentSource } = get();
