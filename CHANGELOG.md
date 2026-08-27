@@ -8,6 +8,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ---
 
+## [2.19.0] - 2026-08-27
+
+### Added
+
+- 新增 Codex 轨迹视图，在会话详情中按 Turn / 近似 Step 展示工具调用、耗时与失败、Reasoning、子 Agent、上下文压缩及 Token 变化，并兼容 legacy 与 `history_base` 分段 rollout。
+- 新增仅开发模式启用的性能诊断：`dev.ps1` 将前端长任务、React 提交、Tauri IPC、后端解析与后台刷新事件写入 `target/perf/`，并提供 `scripts/analyze-perf-log.ps1` 汇总瓶颈和检查阈值。
+
+### Changed
+
+- 大型 Codex 轨迹改为快速首屏、后台补全和按需加载更早记录，减少首次解析量与前端节点数量。
+- 大型会话消息读取采用请求去重、区间加载和更严格的刷新条件，文件监听只刷新受影响的会话，降低重复解析与渲染开销。
+- Codex 会话账单改为只解析当前会话文件，不再为单个徽标扫描全部历史会话。
+
+### Fixed
+
+- 修复项目/会话列表扫描与消息、轨迹解析共用阻塞线程池，导致小型消息请求的后端解析仅需数百毫秒、Tauri IPC 却等待约 50 秒的问题。
+- 修复启动刷新和文件监听重复触发列表全量扫描、进而使大型会话页面长时间无响应的问题。
+
+### Performance
+
+- 在 38 MB Codex 会话的开发日志验证中，30 条消息的 IPC 往返由 `49,750.6 ms` 降至 `236.3 ms`，启动后台刷新由 `49,420.8 ms` 降至 `36.8 ms`。
+
+### Version
+
+- 将工作区版本统一提升到 `2.19.0`，同步 `package.json`、`package-lock.json`、`Cargo.lock`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
+
+---
+
 ## [2.18.0] - 2026-08-06
 
 ### Added
