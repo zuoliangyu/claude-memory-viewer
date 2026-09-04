@@ -6,13 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+---
+
+## [2.21.0] - 2026-09-04
+
 ### Added
 
 - 新增 Oh My Pi 本地会话支持：包含默认/命名 profile 与 Linux/macOS XDG 数据目录发现、项目和会话浏览、搜索、导出、标签/别名、回收站、终端恢复及应用内 CLI 续聊。
+- 感谢 [@yinan-yinan](https://github.com/yinan-yinan) 通过 [PR #12](https://github.com/zuoliangyu/AI-Session-Viewer/pull/12) 贡献 Oh My Pi 会话支持。
 
 ### Fixed
 
 - 修复 Web 模式启动 Claude/Oh My Pi print mode 时未传入用户提示词的问题；Oh My Pi 对话现在保留原生 profile、XDG 与 Provider 凭据环境，并按真实 CLI 检测结果控制「继续对话」入口。
+- 将 Oh My Pi 图标更新为官网使用的黑紫底、粉紫青渐变 Pi 标识。
+
+### Version
+
+- 将工作区版本统一提升到 `2.21.0`，同步 `package.json`、`package-lock.json`、根 `Cargo.lock`、`src-tauri/tauri.conf.json` 与 3 个 Cargo manifest。
 
 ---
 

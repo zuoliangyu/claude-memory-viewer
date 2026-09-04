@@ -26,7 +26,7 @@
 
 本应用**仅处理本地会话文件**，不上传任何数据；删除、标签、别名等写操作只在用户主动触发时执行。
 
-> **What's New（v2.20.0）**：Claude、Codex、Grok 切换现在使用始终可见的纵向品牌导航，并在加载期间明确显示状态；三种数据源统一只统计有效会话，持久缓存与文件监听改为增量校验，大型历史库切换更快且不再出现海量“无标题”空会话。开发与构建入口统一为 Windows `menu.ps1` 和 Linux/macOS `menu.sh`，项目基线升级到 Node.js 22。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
+> **What's New（v2.21.0）**：新增 Oh My Pi 本地会话支持，覆盖默认/命名 profile 与 Linux/macOS XDG 数据目录，可浏览、搜索、导出、管理、恢复并在应用内续聊；同时修复 Web print mode 提示词传递、OMP 环境继承和 CLI 可用性检测。完整版本历史见 [CHANGELOG.md](./CHANGELOG.md)。
 >
 > v2.15.x 起：在 **Codex desktop 中归档 / 删除的会话**残留为「(无标题)」幽灵条目已修复（删除对「文件已消失」幂等）；**会话导出**（JSON / Markdown / HTML，单个 + 批量）、**批量删除会话 / 项目**（移入回收站可还原）、**Codex 项目删除**；初次启动**扫描进度条** + 冷启动 rayon 限流给 UI 留一核，会话页 / 项目页全面**列表虚拟化**（`@tanstack/react-virtual`）。
 
