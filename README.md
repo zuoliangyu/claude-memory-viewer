@@ -22,7 +22,7 @@
 
 ---
 
-**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenAI Codex CLI](https://github.com/openai/codex)、Grok CLI 和 [Oh My Pi](https://github.com/can1357/oh-my-pi) 的本地会话。Claude、Codex 支持一键恢复（Resume）到对应 CLI；Oh My Pi 作为只读历史来源，支持浏览、搜索、导出、标签/别名与删除。
+**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenAI Codex CLI](https://github.com/openai/codex)、Grok CLI 和 [Oh My Pi](https://github.com/can1357/oh-my-pi) 的本地会话。四种来源均支持浏览、搜索、导出、标签/别名、删除与一键恢复（Resume）；Claude、Codex 和 Oh My Pi 还支持在应用内继续对话。
 
 本应用**仅处理本地会话文件**，不上传任何数据；删除、标签、别名等写操作只在用户主动触发时执行。
 
@@ -156,13 +156,13 @@ environment:
 | **Claude** | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/projects/` | Thinking、工具调用 |
 | **Codex** | [Codex CLI](https://github.com/openai/codex) | `~/.codex/sessions/` | Reasoning、函数调用 |
 | **Grok** | Grok CLI | `$GROK_HOME/sessions/` 或 `~/.grok/sessions/` | Reasoning、文本消息 |
-| **Oh My Pi** | [Oh My Pi](https://github.com/can1357/oh-my-pi) | `~/.omp/agent/sessions/` | Thinking、工具调用、工具结果 |
+| **Oh My Pi** | [Oh My Pi](https://github.com/can1357/oh-my-pi) | `~/.omp/agent/sessions/` 或已初始化的 `$XDG_DATA_HOME/omp/.../sessions/` | Thinking、工具调用、工具结果 |
 
 ### 项目浏览
 
 启动即扫描数据源目录，秒开列出所有项目，按最近活跃时间排序，显示每个项目的会话数和最后活跃时间。
 
-- **增量缓存**：Claude、Codex、Grok 均持久化项目/会话摘要，并通过文件修改签名只重读新增或变化的历史文件；应用关闭期间产生的变化也会在下次启动时自动校验
+- **增量缓存**：Claude、Codex、Grok、Oh My Pi 均持久化项目/会话摘要，并通过文件修改签名只重读新增或变化的历史文件；应用关闭期间产生的变化也会在下次启动时自动校验
 - **工程操作菜单**（卡片 / 侧边栏行悬停出现的 `⋯`）：复制工程路径、删除会话数据支持所有数据源（Codex 含按日期合成的虚拟项目）；设置工程别名和删除源代码仍为 Claude 专属
 - **批量删除项目**：列表右上角「选择」进入多选模式，勾选多个工程后底部操作条一键删除（移入回收站可还原），Claude 可选「同时清理 CC 配置」
 - **工程别名**：设置自定义显示名，不改磁盘目录，删除工程时随目录自动清理
@@ -178,7 +178,7 @@ environment:
 - Claude：Ctrl+C 退出的会话也不会丢失
 - Codex：自动过滤非交互式会话（SubAgent、Exec 等内部会话）以及只有元数据、没有可见活动的 rollout
 - Grok：读取 `summary.json` 与 `chat_history.jsonl`，自动忽略系统提示、合成提醒与空会话
-- Oh My Pi:读取 `sessions/` 根目录及直属项目目录的 session JSONL,自动忽略有同名主会话的 artifact 子目录;删除时主会话与 artifact 目录作为一个回收站条目
+- Oh My Pi：读取默认或命名 profile 的 `sessions/` 根目录及直属项目目录中的 session JSONL；Linux/macOS 支持已初始化的 XDG 数据目录；自动忽略有同名主会话的 artifact 子目录，删除时主会话与 artifact 目录作为一个回收站条目
 - **会话导出**：单个会话悬停「导出」按钮，选 JSON / Markdown / HTML 任一格式保存；桌面端走系统保存框，Web 端浏览器下载
 - **批量选择**：右上角「选择」进入多选模式，可一次**批量导出**（每会话一个文件）或**批量删除**（移入回收站可还原）多个会话
 - **清理空会话**：存在无消息的空会话时标题栏出现「清理空会话 (N)」，可逐条勾选或全选批量删除
@@ -194,13 +194,13 @@ environment:
 
 ### 消息详情
 
-完整渲染会话所有消息，支持三种 AI 的内容块格式：
+完整渲染会话所有消息，支持四种 AI 的内容块格式：
 
-| 内容块 | Claude | Codex | Grok | 渲染 |
-|-------|--------|-------|------|------|
-| 文本 | ✅ | ✅ | ✅ | Markdown + 语法高亮 |
-| 思考 / 推理过程 | ✅ Thinking | ✅ Reasoning | ✅ Reasoning | 可折叠 |
-| 工具 / 函数调用 | ✅ | ✅ | — | 名称、参数、返回结果 |
+| 内容块 | Claude | Codex | Grok | Oh My Pi | 渲染 |
+|-------|--------|-------|------|-----------|------|
+| 文本 | ✅ | ✅ | ✅ | ✅ | Markdown + 语法高亮 |
+| 思考 / 推理过程 | ✅ Thinking | ✅ Reasoning | ✅ Reasoning | ✅ Thinking | 可折叠 |
+| 工具 / 函数调用 | ✅ | ✅ | — | ✅ | 名称、参数、返回结果 |
 
 - 大会话（上千条消息）分页加载不卡顿，默认从最新消息开始
 - **Codex 轨迹视图**：在会话详情页查看 Turn / 近似 Step、工具耗时与失败、Reasoning、子 Agent、上下文压缩和逐 Turn Token 拆分；兼容 legacy 与 `history_base` 分段 rollout（[详细说明](TRAJECTORY.md)）
@@ -215,7 +215,7 @@ environment:
 
 ### 恢复会话
 
-选中会话一键在系统终端恢复（Claude → `claude --resume {id}`，Codex → `codex resume {id}`，Grok → `grok -r {id}`）。终端独立于本应用，关闭 Viewer 后继续运行。Windows / macOS / Linux 均支持，自动适配各平台终端。
+选中会话一键在系统终端恢复（Claude → `claude --resume {id}`，Codex → `codex resume {id}`，Grok → `grok -r {id}`，Oh My Pi → `omp --resume {id}`）。终端独立于本应用，关闭 Viewer 后继续运行。Windows / macOS / Linux 均支持，自动适配各平台终端。
 
 ### 会话分叉（Fork）
 
@@ -271,13 +271,13 @@ environment:
 
 ### CLI 对话
 
-侧边栏「CLI 对话」进入，选工作目录后即可在应用内直接和 Claude Code CLI 对话，无需切到终端（自动检测本地已装的 Claude CLI）。
+侧边栏「CLI 对话」进入，选工作目录后即可在应用内直接和 Claude Code、Codex CLI 或 Oh My Pi 对话，无需切到终端；入口按当前数据源自动检测对应 CLI 是否已安装。
 
 - 流式输出，实时渲染 AI 回复（Markdown + 代码高亮）
 - **工具调用专用查看器**：Read（高亮 + 行号）、Edit（Diff）、Write（预览）、Bash（终端风格）、Grep/Glob
 - 对话按轮次分组（显示轮次编号与 token 用量），header 累计 token、每条消息分项明细
 - 超过 30 轮自动虚拟滚动，长对话不卡
-- 支持 `--resume` 续聊已有会话（消息详情页「继续对话」入口）
+- 支持续聊已有 Claude、Codex 与 Oh My Pi 会话（消息详情页「继续对话」入口）
 - 自动记住上次模型、续聊历史会话时自动匹配原会话模型；`/model` 或 `Ctrl+K` 切换模型
 
 ### Skills 浏览 / 导入 / 删除
@@ -521,7 +521,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 
 ## 路线图
 
-- [x] 三数据源支持（Claude Code + Codex CLI + Grok CLI）
+- [x] 四数据源支持（Claude Code + Codex CLI + Grok CLI + Oh My Pi）
 - [x] 消息详情渲染（Markdown / 代码高亮 / 工具调用 / 思考过程）
 - [x] Resume 会话（跨平台终端启动）
 - [x] 全局搜索 + Token 统计面板
@@ -531,7 +531,7 @@ Web 服务器暴露以下 REST API，可供自定义客户端调用：
 - [x] 关于作者信息弹窗
 - [x] 会话标签与别名系统 + 跨项目标签筛选
 - [x] 全局搜索会话分组模式 + 应用内使用说明
-- [x] 应用内 CLI 对话（Claude `--resume` / Codex `app-server` 协议续聊）
+- [x] 应用内 CLI 对话（Claude `--resume` / Codex `app-server` / Oh My Pi print mode 续聊）
 - [x] CLI 配置自动检测（API Key / Base URL / 默认模型）
 - [x] 工具调用专用查看器（Read/Edit/Write/Bash/Grep/Glob）
 - [x] 对话轮次分组 + Token 详细统计 + 虚拟化滚动

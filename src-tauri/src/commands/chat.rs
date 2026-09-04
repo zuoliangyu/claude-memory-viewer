@@ -565,43 +565,44 @@ fn build_chat_command(params: BuildChatCommandParams<'_>) -> Result<Command, Str
         source, model, project_path
     );
 
-    // Clean environment: use a whitelist approach (like opcode) to avoid
-    // inheriting Claude Code session vars that cause conflicts.
-    // Clear everything, then only pass essential system variables.
-    cmd.env_clear();
-    for key in &[
-        "PATH",
-        "PATHEXT",
-        "SYSTEMROOT",
-        "SYSTEMDRIVE",
-        "COMSPEC",
-        "TEMP",
-        "TMP",
-        "HOME",
-        "HOMEDRIVE",
-        "HOMEPATH",
-        "USERPROFILE",
-        "USERNAME",
-        "USER",
-        "SHELL",
-        "LANG",
-        "LC_ALL",
-        "LC_CTYPE",
-        "NODE_PATH",
-        "NVM_DIR",
-        "NVM_BIN",
-        "NVM_SYMLINK",
-        "APPDATA",
-        "LOCALAPPDATA",
-        "PROGRAMFILES",
-        "PROGRAMDATA",
-        "HTTP_PROXY",
-        "HTTPS_PROXY",
-        "NO_PROXY",
-        "ALL_PROXY",
-    ] {
-        if let Ok(val) = std::env::var(key) {
-            cmd.env(key, val);
+    // Claude/Codex use a whitelist to avoid inheriting conflicting session
+    // variables. OMP must retain profile, XDG and provider-specific settings.
+    if source != "omp" {
+        cmd.env_clear();
+        for key in &[
+            "PATH",
+            "PATHEXT",
+            "SYSTEMROOT",
+            "SYSTEMDRIVE",
+            "COMSPEC",
+            "TEMP",
+            "TMP",
+            "HOME",
+            "HOMEDRIVE",
+            "HOMEPATH",
+            "USERPROFILE",
+            "USERNAME",
+            "USER",
+            "SHELL",
+            "LANG",
+            "LC_ALL",
+            "LC_CTYPE",
+            "NODE_PATH",
+            "NVM_DIR",
+            "NVM_BIN",
+            "NVM_SYMLINK",
+            "APPDATA",
+            "LOCALAPPDATA",
+            "PROGRAMFILES",
+            "PROGRAMDATA",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "NO_PROXY",
+            "ALL_PROXY",
+        ] {
+            if let Ok(val) = std::env::var(key) {
+                cmd.env(key, val);
+            }
         }
     }
     compose_chat_path(&mut cmd, cli_path)?;
@@ -666,6 +667,9 @@ fn apply_provider_env(
     source: &str,
     credentials: &cli_config::ResolvedCliCredentials,
 ) {
+    if source == "omp" {
+        return;
+    }
     for key in &[
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",

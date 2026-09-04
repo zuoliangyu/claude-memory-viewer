@@ -63,15 +63,16 @@ Cargo Workspace 包含三个 crate：
 - Web 模式：`webApi.ts`（HTTP fetch + WebSocket）
 - 统一入口：`api.ts`（动态 import）
 
-### 三数据源模式
+### 四数据源模式
 
-会话 API 接收 `source` 参数（`"claude" | "codex" | "grok"`），调度到对应 `provider/`：
+会话 API 接收 `source` 参数（`"claude" | "codex" | "grok" | "omp"`），调度到对应 `provider/`：
 
 - `provider/claude.rs` — 读取 `~/.claude/projects/{encoded-path}/`（sessions-index.json + *.jsonl）
 - `provider/codex.rs` — 读取 `~/.codex/sessions/{year}/{month}/{day}/rollout-*.jsonl`
 - `provider/grok.rs` — 读取 `$GROK_HOME/sessions/` 或 `~/.grok/sessions/` 下的 `summary.json` + `chat_history.jsonl`
+- `provider/omp.rs` — 读取 Oh My Pi 默认或命名 profile 的 session JSONL；Linux/macOS 支持已初始化的 `$XDG_DATA_HOME/omp/`，`PI_CODING_AGENT_DIR` 仅覆盖默认 profile 的非 XDG agent 目录
 
-三个 provider 解析为共享的 `models/` 类型（`ProjectEntry`、`SessionIndexEntry`、`DisplayMessage`）。Grok 仅接入本地会话浏览、搜索、导出、删除/回收站、恢复和文件监听；CLI 对话、Token 统计与 Provider 同步仍只支持原有数据源。
+四个 provider 解析为共享的 `models/` 类型（`ProjectEntry`、`SessionIndexEntry`、`DisplayMessage`）。Grok 接入本地会话浏览、搜索、导出、删除/回收站、恢复和文件监听；Oh My Pi 在此基础上还支持应用内 CLI 续聊。Token 统计仍仅支持 Claude/Codex，Provider 同步仍仅支持已有的 Claude/Codex 能力。
 
 ### 前端 → 后端通信
 
@@ -123,7 +124,7 @@ CSS 变量定义在 `index.css`（`:root` 浅色，`.dark` 深色）。Tailwind 
 - **`*.ps1` / `*.sh`** — Windows 与 Linux/macOS 对称的开发、构建、部署、清理、性能分析和轻量检查入口；完整参数见 `scripts/README.md`。
 - **`generate-icons.mjs`** — 读取 `public/logo.png`，对比与 `src-tauri/icons/icon.png` 的修改时间，仅在 logo 变更时执行 `tauri icon` 重新生成。已挂载到 `dev` 和 `build` 脚本。
 - **`sync-version.mjs`** — 版本号唯一来源：`package.json`。`sync` 模式写入 3 个 `Cargo.toml`（src-tauri、session-core、session-web）+ `tauri.conf.json`；`check` 模式（`build` 时使用）版本不一致则报错阻止构建。
-- **`check-project.mjs`** — 运行节点 URL 和时区格式化的轻量回归检查，由 `npm run check:scripts` 和两个平台菜单调用。
+- **`check-project.mjs`** — 运行节点 URL、时区格式化以及聊天/OMP 命令与环境契约的轻量回归检查，由 `npm run check:scripts` 和两个平台菜单调用。
 - **`analyze-perf-log.mjs`** — 跨平台性能日志分析核心，PowerShell/Bash 包装器共享同一实现。
 
 ## 测试环境

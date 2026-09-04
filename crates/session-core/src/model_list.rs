@@ -233,7 +233,7 @@ struct OmpModelConfig {
 }
 
 fn omp_models_config_path() -> Option<std::path::PathBuf> {
-    let agent_dir = crate::provider::omp::get_sessions_dir()?.parent()?.to_path_buf();
+    let agent_dir = crate::provider::omp::get_agent_dir()?;
     let yml = agent_dir.join("models.yml");
     if yml.is_file() {
         return Some(yml);

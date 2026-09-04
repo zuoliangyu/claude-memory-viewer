@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 ## [Unreleased]
 
+### Added
+
+- 新增 Oh My Pi 本地会话支持：包含默认/命名 profile 与 Linux/macOS XDG 数据目录发现、项目和会话浏览、搜索、导出、标签/别名、回收站、终端恢复及应用内 CLI 续聊。
+
+### Fixed
+
+- 修复 Web 模式启动 Claude/Oh My Pi print mode 时未传入用户提示词的问题；Oh My Pi 对话现在保留原生 profile、XDG 与 Provider 凭据环境，并按真实 CLI 检测结果控制「继续对话」入口。
+
 ---
 
 ## [2.20.0] - 2026-08-27

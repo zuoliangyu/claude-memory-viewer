@@ -1,6 +1,7 @@
 const checks = [
   ["节点配置", "./check-node-config.mjs"],
   ["时区格式化", "./check-timezone.mjs"],
+  ["聊天与 OMP 契约", "./check-chat-contracts.mjs"],
 ];
 
 for (const [label, modulePath] of checks) {

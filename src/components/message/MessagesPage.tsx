@@ -488,7 +488,7 @@ export function MessagesPage() {
     "";
 
   usePaneChatStream(mainPaneId, resolvedSessionId);
-  const cliAvailable = source === "omp" || (supportsCli && availableClis.some((c) => c.cliType === source));
+  const cliAvailable = supportsCli && availableClis.some((cli) => cli.cliType === source);
   const [editingSession, setEditingSession] = useState(false);
 
   // Detect CLI and set chat context on mount

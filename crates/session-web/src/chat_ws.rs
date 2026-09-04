@@ -373,6 +373,7 @@ async fn run_cli_process(
     if let Some(resume_target) = resume_target.as_deref() {
         cmd.arg("--resume").arg(resume_target);
     }
+    cmd.arg("-p").arg(prompt);
     if !model.is_empty() {
         if source == "claude" {
             let cli_model = model.strip_suffix("-latest").unwrap_or(model);
@@ -737,6 +738,9 @@ fn compose_chat_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
 }
 
 fn apply_provider_env(cmd: &mut Command, source: &str, credentials: &ResolvedCliCredentials) {
+    if source == "omp" {
+        return;
+    }
     for key in &[
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",

@@ -26,6 +26,7 @@
 - 本地桌面构建临时设置 `createUpdaterArtifacts=false`，不需要发布签名私钥。
 - 正式发布继续使用 `tauri.conf.json` 和 GitHub Actions Secrets 生成 updater 签名。
 - 所有脚本都会先定位仓库根目录，因此可以从任意当前目录调用。
+- 轻量检查会验证节点 URL、时区格式化，以及聊天/OMP 的提示词、CLI 检测、profile/XDG 路径和环境继承契约；它不替代 Rust/TypeScript 编译检查。
 
 ## 常用参数
 

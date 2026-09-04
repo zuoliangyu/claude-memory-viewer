@@ -113,22 +113,79 @@ fn active_profile() -> Option<String> {
     valid.then(|| profile.to_string())
 }
 
-/// OMP resolves this directory from PI_CODING_AGENT_DIR when set, otherwise
-/// from PI_CONFIG_DIR (default `.omp`) and the active OMP profile.
-pub fn get_sessions_dir() -> Option<PathBuf> {
-    if let Some(agent_dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
-        if !agent_dir.is_empty() {
-            return Some(PathBuf::from(agent_dir).join("sessions"));
+fn configured_agent_dir(
+    home: &Path,
+    profile: Option<&str>,
+    agent_override: Option<PathBuf>,
+    config_dir: Option<PathBuf>,
+) -> PathBuf {
+    if profile.is_none() {
+        if let Some(agent_dir) = agent_override.filter(|path| !path.as_os_str().is_empty()) {
+            return agent_dir;
         }
     }
 
-    let home = dirs::home_dir()?;
-    let config_dir = std::env::var_os("PI_CONFIG_DIR").unwrap_or_else(|| ".omp".into());
-    let mut agent_dir = home.join(config_dir);
-    if let Some(profile) = active_profile() {
-        agent_dir = agent_dir.join("profiles").join(profile);
+    let mut root = home.join(config_dir.unwrap_or_else(|| PathBuf::from(".omp")));
+    if let Some(profile) = profile {
+        root = root.join("profiles").join(profile);
     }
-    Some(agent_dir.join("agent").join("sessions"))
+    root.join("agent")
+}
+
+fn xdg_sessions_dir(
+    profile: Option<&str>,
+    xdg_data_home: Option<PathBuf>,
+    xdg_supported: bool,
+) -> Option<PathBuf> {
+    if !xdg_supported {
+        return None;
+    }
+    let mut root = xdg_data_home
+        .filter(|path| !path.as_os_str().is_empty())?
+        .join("omp");
+    if let Some(profile) = profile {
+        root = root.join("profiles").join(profile);
+    }
+    root.exists().then(|| root.join("sessions"))
+}
+
+/// Return OMP's active non-XDG agent directory. Configuration files such as
+/// `models.yml` remain here even when session data has migrated to XDG.
+pub fn get_agent_dir() -> Option<PathBuf> {
+    let home = dirs::home_dir()?;
+    let profile = active_profile();
+    Some(configured_agent_dir(
+        &home,
+        profile.as_deref(),
+        std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from),
+        std::env::var_os("PI_CONFIG_DIR").map(PathBuf::from),
+    ))
+}
+
+/// Resolve the OMP session data directory, including named profiles and an
+/// initialized XDG data root on Linux/macOS.
+pub fn get_sessions_dir() -> Option<PathBuf> {
+    let profile = active_profile();
+    let agent_override = std::env::var_os("PI_CODING_AGENT_DIR").map(PathBuf::from);
+    let agent_dir = get_agent_dir()?;
+
+    // A custom default-profile agent directory is isolated from XDG. Named
+    // profiles ignore this override, matching OMP's own DirResolver.
+    let uses_custom_agent = profile.is_none()
+        && agent_override
+            .as_ref()
+            .is_some_and(|path| !path.as_os_str().is_empty());
+    if !uses_custom_agent {
+        if let Some(path) = xdg_sessions_dir(
+            profile.as_deref(),
+            std::env::var_os("XDG_DATA_HOME").map(PathBuf::from),
+            cfg!(any(target_os = "linux", target_os = "macos")),
+        ) {
+            return Some(path);
+        }
+    }
+
+    Some(agent_dir.join("sessions"))
 }
 
 fn is_session_file(path: &Path) -> bool {
@@ -841,6 +898,50 @@ mod tests {
         let path = root.join("invalid.jsonl");
         fs::write(&path, r#"{"type":"session","id":"only-id"}"#).unwrap();
         assert!(parse_session_header(&path).is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn named_profile_ignores_default_agent_override() {
+        let root = temporary_dir();
+        let home = root.join("home");
+        let agent_dir = configured_agent_dir(
+            &home,
+            Some("work"),
+            Some(root.join("custom-agent")),
+            Some(PathBuf::from(".omp-alt")),
+        );
+
+        assert_eq!(
+            agent_dir,
+            home.join(".omp-alt")
+                .join("profiles")
+                .join("work")
+                .join("agent")
+        );
+    }
+
+    #[test]
+    fn xdg_session_root_is_flattened_and_profile_specific() {
+        let root = temporary_dir();
+        let xdg_data = root.join("data");
+        let profile_root = xdg_data.join("omp").join("profiles").join("work");
+        fs::create_dir_all(&profile_root).unwrap();
+
+        assert_eq!(
+            xdg_sessions_dir(Some("work"), Some(xdg_data), true),
+            Some(profile_root.join("sessions"))
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn xdg_session_root_requires_initialized_app_directory() {
+        let root = temporary_dir();
+        let xdg_data = root.join("data");
+
+        assert_eq!(xdg_sessions_dir(None, Some(xdg_data), true), None);
         let _ = fs::remove_dir_all(root);
     }
 
