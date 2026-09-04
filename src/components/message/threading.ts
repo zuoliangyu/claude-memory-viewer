@@ -199,25 +199,40 @@ function resolveForkUserMessageId(
   return explicitParentUuid;
 }
 
-function assignSectionLabels(nodes: ThreadDisplayNode[], parentPath: number[] = []) {
-  nodes.forEach((node, index) => {
-    const sectionPath = [...parentPath, index + 1];
-    node.sectionPath = sectionPath;
-    node.sectionLabel = sectionPath.join(".");
+function assignSectionLabels(roots: ThreadDisplayNode[]) {
+  const stack = roots
+    .map((node, index) => ({ node, sectionPath: [index + 1] }))
+    .reverse();
 
-    if (node.children.length > 0) {
-      assignSectionLabels(node.children, sectionPath);
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    current.node.sectionPath = current.sectionPath;
+    current.node.sectionLabel = current.sectionPath.join(".");
+
+    for (let index = current.node.children.length - 1; index >= 0; index -= 1) {
+      stack.push({
+        node: current.node.children[index],
+        sectionPath: [...current.sectionPath, index + 1],
+      });
     }
-  });
+  }
 }
 
-function assignThreadTitles(nodes: ThreadDisplayNode[], parent: ThreadDisplayNode | null = null) {
-  nodes.forEach((node) => {
-    node.threadTitle = deriveThreadTitle(node, parent);
-    if (node.children.length > 0) {
-      assignThreadTitles(node.children, node);
+function assignThreadTitles(roots: ThreadDisplayNode[]) {
+  const stack = roots
+    .map((node) => ({ node, parent: null as ThreadDisplayNode | null }))
+    .reverse();
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    current.node.threadTitle = deriveThreadTitle(current.node, current.parent);
+
+    for (let index = current.node.children.length - 1; index >= 0; index -= 1) {
+      stack.push({ node: current.node.children[index], parent: current.node });
     }
-  });
+  }
 }
 
 function deriveThreadTitle(node: ThreadDisplayNode, parent: ThreadDisplayNode | null): string {

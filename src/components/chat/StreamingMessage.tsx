@@ -16,9 +16,11 @@ import { cleanMessageText, wrapAsciiArt } from "../message/utils";
 import { useExpandAllControl } from "../common/ExpandAllContext";
 import { useAppStore } from "../../stores/appStore";
 import { formatDateTime } from "../../utils/dateTime";
+import { OmpMark } from "../layout/ProviderMarks";
 
 interface Props {
   message: ChatMessage;
+  source?: string;
   showTimestamp?: boolean;
   showModel?: boolean;
   /** Map from tool_use id → matching tool_result (for linked rendering) */
@@ -100,6 +102,7 @@ function areStreamingMessagePropsEqual(prevProps: Props, nextProps: Props) {
   }
 
   if (
+    prevProps.source !== nextProps.source ||
     prevProps.showTimestamp !== nextProps.showTimestamp ||
     prevProps.showModel !== nextProps.showModel ||
     prevProps.onSubmitAnswers !== nextProps.onSubmitAnswers ||
@@ -126,6 +129,7 @@ function areStreamingMessagePropsEqual(prevProps: Props, nextProps: Props) {
  */
 export const StreamingMessage = memo(function StreamingMessage({
   message,
+  source = "claude",
   showTimestamp,
   showModel,
   toolResultMap,
@@ -149,16 +153,17 @@ export const StreamingMessage = memo(function StreamingMessage({
   }
   // assistant + tool
   return (
-      <AssistantMsg
-        message={message}
-        showTimestamp={showTimestamp}
-        timeZone={timeZone}
-        showModel={showModel}
-        toolResultMap={toolResultMap}
-        onSubmitAnswers={onSubmitAnswers}
-        interactiveQuestions={interactiveQuestions}
-      />
-    );
+    <AssistantMsg
+      message={message}
+      source={source}
+      showTimestamp={showTimestamp}
+      timeZone={timeZone}
+      showModel={showModel}
+      toolResultMap={toolResultMap}
+      onSubmitAnswers={onSubmitAnswers}
+      interactiveQuestions={interactiveQuestions}
+    />
+  );
 }, areStreamingMessagePropsEqual);
 
 function isBashToolName(name: string): boolean {
@@ -343,11 +348,9 @@ function UserMsg({
     </div>
   );
 }
-
-/* ── Assistant message ── */
-
 function AssistantMsg({
   message,
+  source,
   showTimestamp,
   showModel,
   toolResultMap,
@@ -356,6 +359,7 @@ function AssistantMsg({
   timeZone,
 }: {
   message: ChatMessage;
+  source: string;
   showTimestamp?: boolean;
   showModel?: boolean;
   toolResultMap?: Map<string, ToolResultData>;
@@ -364,15 +368,18 @@ function AssistantMsg({
   timeZone: string;
 }) {
   const { blocks: displayBlocks } = getToolDisplayState(message.content, toolResultMap);
+  const assistantName = source === "codex" ? "Codex" : source === "omp" ? "Oh My Pi" : "Claude";
+  const iconColor = source === "codex" ? "text-green-500" : source === "omp" ? "text-fuchsia-500" : "text-orange-500";
+  const iconBg = source === "codex" ? "bg-green-500/10" : source === "omp" ? "bg-fuchsia-500/10" : "bg-orange-500/10";
 
   return (
     <div className="flex gap-3">
-      <div className="shrink-0 w-7 h-7 rounded-full bg-orange-500/10 flex items-center justify-center mt-0.5">
-        <Bot className="w-3.5 h-3.5 text-orange-500" />
+      <div className={`shrink-0 w-7 h-7 rounded-full ${iconBg} flex items-center justify-center mt-0.5`}>
+        {source === "omp" ? <OmpMark className="w-4 h-4" /> : <Bot className={`w-3.5 h-3.5 ${iconColor}`} />}
       </div>
       <div className="flex-1 min-w-0">
         <div className="flex items-baseline gap-2 mb-1">
-          <span className="text-sm font-medium">Claude</span>
+          <span className="text-sm font-medium">{assistantName}</span>
           {showModel && message.model && (
             <span className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
               {message.model}

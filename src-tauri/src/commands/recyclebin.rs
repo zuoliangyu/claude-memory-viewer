@@ -25,6 +25,9 @@ pub fn empty_recyclebin() -> Result<usize, String> {
 pub fn cleanup_orphan_dirs(source: String) -> Result<usize, String> {
     match source.as_str() {
         "claude" => claude::cleanup_all_orphan_dirs(),
-        _ => Err(format!("Orphan dir cleanup not supported for source: {}", source)),
+        _ => Err(format!(
+            "Orphan dir cleanup not supported for source: {}",
+            source
+        )),
     }
 }

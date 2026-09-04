@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::metadata;
 use crate::models::message::{DisplayContentBlock, DisplayMessage};
 use crate::parser::jsonl as claude_parser;
-use crate::provider::{claude, codex, grok};
+use crate::provider::{claude, codex, grok, omp};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchScope {
@@ -358,6 +358,7 @@ pub fn global_search(
         "claude" => search_claude(&query_lower, max_results, scope),
         "codex" => search_codex(&query_lower, max_results, scope),
         "grok" => search_grok(&query_lower, max_results, scope),
+        "omp" => search_omp(&query_lower, max_results, scope),
         _ => return Err(format!("Unknown source: {}", source)),
     };
 
@@ -407,8 +408,8 @@ fn search_claude(query_lower: &str, max_results: usize, scope: SearchScope) -> V
             let tags = session_meta
                 .map(|s| s.tags.clone())
                 .filter(|t| !t.is_empty());
-            let custom_title = claude_parser::scan_session_file_once(file_path)
-                .and_then(|scan| scan.custom_title);
+            let custom_title =
+                claude_parser::scan_session_file_once(file_path).and_then(|scan| scan.custom_title);
             let alias = custom_title.clone().or(metadata_alias.clone());
             let mut search_aliases = Vec::with_capacity(2);
             push_search_alias(&mut search_aliases, custom_title);
@@ -601,6 +602,69 @@ fn search_grok(query_lower: &str, max_results: usize, scope: SearchScope) -> Vec
                 file_path: session.file_path.clone(),
             };
 
+            search_messages_for_session(
+                &ctx,
+                &messages,
+                query_lower,
+                scope,
+                &result_count,
+                max_results,
+            )
+        })
+        .collect();
+
+    let mut results = results;
+    results.truncate(max_results);
+    results
+}
+
+fn search_omp(query_lower: &str, max_results: usize, scope: SearchScope) -> Vec<SearchResult> {
+    if max_results == 0 {
+        return Vec::new();
+    }
+
+    let mut sessions = Vec::new();
+    for project in omp::get_projects().unwrap_or_default() {
+        let meta = metadata::load_metadata("omp", &project.id);
+        for session in omp::get_sessions(&project.id).unwrap_or_default() {
+            let session_meta = meta.sessions.get(&session.session_id);
+            sessions.push((
+                project.id.clone(),
+                project.short_name.clone(),
+                session,
+                session_meta.and_then(|item| item.alias.clone()),
+                session_meta
+                    .map(|item| item.tags.clone())
+                    .filter(|tags| !tags.is_empty()),
+            ));
+        }
+    }
+
+    let result_count = AtomicUsize::new(0);
+    let results: Vec<SearchResult> = sessions
+        .par_iter()
+        .flat_map(|(project_id, project_name, session, alias, tags)| {
+            if result_count.load(Ordering::Relaxed) >= max_results {
+                return Vec::new();
+            }
+            let Ok(messages) = omp::parse_all_messages(std::path::Path::new(&session.file_path))
+            else {
+                return Vec::new();
+            };
+            let mut search_aliases = Vec::with_capacity(2);
+            push_search_alias(&mut search_aliases, session.thread_name.clone());
+            push_search_alias(&mut search_aliases, alias.clone());
+            let ctx = SearchSessionContext {
+                source: "omp".to_string(),
+                project_id: project_id.clone(),
+                project_name: project_name.clone(),
+                session_id: session.session_id.clone(),
+                thread_name: session.thread_name.clone(),
+                alias: alias.clone(),
+                search_aliases,
+                tags: tags.clone(),
+                file_path: session.file_path.clone(),
+            };
             search_messages_for_session(
                 &ctx,
                 &messages,

@@ -114,10 +114,7 @@ fn to_provider_counts(map: HashMap<String, u32>) -> Vec<ProviderCount> {
     v
 }
 
-pub fn run_sync(
-    target_override: Option<String>,
-    keep: usize,
-) -> Result<SyncResult, String> {
+pub fn run_sync(target_override: Option<String>, keep: usize) -> Result<SyncResult, String> {
     let codex_home = get_codex_home()?;
     let config_path = codex_home.join("config.toml");
     let target = target_override.unwrap_or_else(|| config::read_current_provider(&config_path).0);
@@ -289,7 +286,9 @@ fn sync_to_target(
     let mut seen_ids: HashSet<String> = HashSet::new();
 
     for p in &all_paths {
-        let Some(meta) = rollout::read_meta(p, false) else { continue };
+        let Some(meta) = rollout::read_meta(p, false) else {
+            continue;
+        };
         if let Some(sid) = &meta.session_id {
             if seen_ids.insert(sid.clone()) {
                 thread_ids_with_user_event.push(sid.clone());
@@ -371,8 +370,7 @@ fn sync_to_target(
     };
     let metadata_json = serde_json::to_string_pretty(&metadata)
         .map_err(|e| format!("serialize metadata: {}", e))?;
-    fs::write(backup_dir.join("metadata.json"), metadata_json)
-        .map_err(|e| e.to_string())?;
+    fs::write(backup_dir.join("metadata.json"), metadata_json).map_err(|e| e.to_string())?;
 
     let updated_sqlite_rows = if sqlite_path.exists() {
         sqlite_state::update_threads(
@@ -400,8 +398,7 @@ fn sync_to_target(
         }
     }
 
-    let global_state_updated =
-        global_state::normalize_paths(&global_state_p).unwrap_or(false);
+    let global_state_updated = global_state::normalize_paths(&global_state_p).unwrap_or(false);
 
     let _ = backup::prune_backups(codex_home, keep.max(1));
 
@@ -418,16 +415,13 @@ fn sync_to_target(
     })
 }
 
-pub fn run_restore(
-    backup_dir: &str,
-    opts: RestoreOptions,
-) -> Result<RestoreResult, String> {
+pub fn run_restore(backup_dir: &str, opts: RestoreOptions) -> Result<RestoreResult, String> {
     let codex_home = get_codex_home()?;
     let dir = PathBuf::from(backup_dir);
     let meta_text = fs::read_to_string(dir.join("metadata.json"))
         .map_err(|e| format!("read metadata.json: {}", e))?;
-    let metadata: BackupMetadata = serde_json::from_str(&meta_text)
-        .map_err(|e| format!("parse metadata: {}", e))?;
+    let metadata: BackupMetadata =
+        serde_json::from_str(&meta_text).map_err(|e| format!("parse metadata: {}", e))?;
     if metadata.namespace != backup::NAMESPACE {
         return Err("not a provider-sync backup".into());
     }

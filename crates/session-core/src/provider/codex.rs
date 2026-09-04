@@ -106,7 +106,11 @@ fn direct_chat_date(fm: &CodexFileMeta) -> Option<String> {
     if fm.originator.as_deref() != Some("Codex Desktop") || fm.cwd.is_empty() {
         return None;
     }
-    let segs: Vec<&str> = fm.cwd.split(['/', '\\']).filter(|s| !s.is_empty()).collect();
+    let segs: Vec<&str> = fm
+        .cwd
+        .split(['/', '\\'])
+        .filter(|s| !s.is_empty())
+        .collect();
     for (i, seg) in segs.iter().enumerate() {
         if seg.eq_ignore_ascii_case("Codex") {
             if let Some(date) = segs.get(i + 1).and_then(|next| leading_date(next)) {
@@ -567,7 +571,7 @@ pub fn extract_session_meta(path: &Path) -> Option<SessionMeta> {
                         s != "exec" && s != "mcp"
                     }
                     Some(Value::Object(_)) => false, // subagent object
-                    _ => true, // missing / unknown shape → assume interactive
+                    _ => true,                       // missing / unknown shape → assume interactive
                 };
 
                 return Some(SessionMeta {
@@ -1112,7 +1116,10 @@ pub fn delete_project(project_id: &str) -> Result<super::claude::DeleteResult, S
                 let _ = crate::metadata::remove_session_meta("codex", project_id, &s.session_id);
             }
             Err(e) => {
-                eprintln!("[codex::delete_project] Failed to recycle {:?}: {}", path, e);
+                eprintln!(
+                    "[codex::delete_project] Failed to recycle {:?}: {}",
+                    path, e
+                );
             }
         }
     }
@@ -1282,7 +1289,11 @@ pub fn parse_messages_range(
     })
 }
 
-fn parse_tail_messages(path: &Path, page: usize, page_size: usize) -> Result<PaginatedMessages, String> {
+fn parse_tail_messages(
+    path: &Path,
+    page: usize,
+    page_size: usize,
+) -> Result<PaginatedMessages, String> {
     let file = fs::File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
     let window_len = tail_window_len(page, page_size);
@@ -1327,16 +1338,16 @@ fn display_message_from_row(row: &Value) -> Option<DisplayMessage> {
         return None;
     }
 
-    let timestamp = row.get("timestamp").and_then(|v| v.as_str()).map(String::from);
+    let timestamp = row
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .map(String::from);
     let payload = row.get("payload")?;
     let payload_type = payload.get("type").and_then(|v| v.as_str()).unwrap_or("");
 
     match payload_type {
         "message" => {
-            let role = payload
-                .get("role")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let role = payload.get("role").and_then(|v| v.as_str()).unwrap_or("");
             if role == "developer" || role == "system" {
                 return None;
             }
@@ -1369,8 +1380,7 @@ fn display_message_from_row(row: &Value) -> Option<DisplayMessage> {
                 .map(|v| {
                     if let Some(s) = v.as_str() {
                         if let Ok(parsed) = serde_json::from_str::<Value>(s) {
-                            serde_json::to_string_pretty(&parsed)
-                                .unwrap_or_else(|_| s.to_string())
+                            serde_json::to_string_pretty(&parsed).unwrap_or_else(|_| s.to_string())
                         } else {
                             s.to_string()
                         }
@@ -1471,10 +1481,7 @@ fn extract_message_content(payload: &Value) -> Vec<DisplayContentBlock> {
                 let item_type = item.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 match item_type {
                     "input_text" | "output_text" | "text" => {
-                        let text = item
-                            .get("text")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("");
                         if !text.trim().is_empty() {
                             blocks.push(DisplayContentBlock::Text {
                                 text: truncate_string(text, MAX_TEXT_BLOCK_SIZE),
@@ -1482,10 +1489,7 @@ fn extract_message_content(payload: &Value) -> Vec<DisplayContentBlock> {
                         }
                     }
                     "reasoning" => {
-                        let text = item
-                            .get("text")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
+                        let text = item.get("text").and_then(|v| v.as_str()).unwrap_or("");
                         if !text.trim().is_empty() {
                             blocks.push(DisplayContentBlock::Reasoning {
                                 text: truncate_string(text, MAX_TEXT_BLOCK_SIZE),
@@ -1630,9 +1634,18 @@ pub fn extract_token_info(path: &Path) -> Option<TokenInfo> {
             }
 
             if let Some(info) = payload.get("info").and_then(|i| i.get("total_token_usage")) {
-                let input = info.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                let output = info.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
-                let total = info.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(input + output);
+                let input = info
+                    .get("input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let output = info
+                    .get("output_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let total = info
+                    .get("total_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(input + output);
 
                 last_token_info = Some(TokenInfo {
                     input_tokens: input,
@@ -1699,8 +1712,12 @@ fn extract_token_events(path: &Path) -> Vec<TokenEvent> {
 
         let (delta_input, delta_output) = if let Some(last) = last {
             (
-                last.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-                last.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                last.get("input_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+                last.get("output_tokens")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
             )
         } else if let Some(total) = total {
             let cur_input = total

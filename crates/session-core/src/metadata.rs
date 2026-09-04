@@ -201,11 +201,7 @@ pub fn rename_chat_session(
             if !jsonl_path.exists() {
                 return Err(format!("Session file not found: {}", jsonl_path.display()));
             }
-            crate::parser::jsonl::append_custom_title(
-                &jsonl_path,
-                session_id,
-                trimmed.as_deref(),
-            )?;
+            crate::parser::jsonl::append_custom_title(&jsonl_path, session_id, trimmed.as_deref())?;
 
             let existing = load_metadata("claude", &encoded);
             let tags = existing
@@ -231,11 +227,7 @@ pub fn rename_chat_session(
 }
 
 /// Remove metadata for a single session
-pub fn remove_session_meta(
-    source: &str,
-    project_id: &str,
-    session_id: &str,
-) -> Result<(), String> {
+pub fn remove_session_meta(source: &str, project_id: &str, session_id: &str) -> Result<(), String> {
     let mut meta = load_metadata(source, project_id);
     if meta.sessions.remove(session_id).is_some() {
         save_metadata(source, project_id, &meta)?;

@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-  <strong>Claude Code、Codex CLI 与 Grok CLI 本地会话的统一可视化浏览器</strong>
+  <strong>Claude Code、Codex CLI、Grok CLI 与 Oh My Pi 本地会话的统一可视化浏览器</strong>
 </p>
 
 <p align="center">
@@ -22,7 +22,7 @@
 
 ---
 
-**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenAI Codex CLI](https://github.com/openai/codex) 和 Grok CLI 的本地会话，并支持一键恢复（Resume）到对应 CLI 中继续对话。
+**AI Session Viewer** 是一个轻量级应用，让你可以在一个统一界面中浏览、搜索来自 [Claude Code](https://docs.anthropic.com/en/docs/claude-code)、[OpenAI Codex CLI](https://github.com/openai/codex)、Grok CLI 和 [Oh My Pi](https://github.com/can1357/oh-my-pi) 的本地会话。Claude、Codex 支持一键恢复（Resume）到对应 CLI；Oh My Pi 作为只读历史来源，支持浏览、搜索、导出、标签/别名与删除。
 
 本应用**仅处理本地会话文件**，不上传任何数据；删除、标签、别名等写操作只在用户主动触发时执行。
 
@@ -59,9 +59,9 @@
 | macOS (Universal) | `.dmg`（同时支持 Intel 和 Apple Silicon） |
 | Linux | `.deb` / `.AppImage` |
 
-安装后打开即可使用，应用会自动扫描本地的 Claude / Codex / Grok 会话数据。
+安装后打开即可使用，应用会自动扫描本地的 Claude / Codex / Grok / Oh My Pi 会话数据。
 
-> 前提：至少使用过一种受支持 CLI，对应的 `~/.claude/projects/`、`~/.codex/sessions/` 或 `$GROK_HOME/sessions/`（默认 `~/.grok/sessions/`）目录存在。
+> 前提：至少使用过一种受支持 CLI，对应的 `~/.claude/projects/`、`~/.codex/sessions/`、`$GROK_HOME/sessions/`（默认 `~/.grok/sessions/`）或 Oh My Pi 的 `~/.omp/agent/sessions/` 目录存在。
 
 ### Web 服务器
 
@@ -147,15 +147,16 @@ environment:
 
 ## 功能特性
 
-### 三数据源
+### 四数据源
 
-侧边栏顶部以纵向品牌导航直接展示 Claude / Codex / Grok，点击即可切换；切换时会立即清理上一数据源状态并显示加载进度，不会短暂展示旧项目或误报“0 个项目”。机器/节点选择器位于来源列表下方的独立层级。
+侧边栏顶部以纵向品牌导航直接展示 Claude / Codex / Grok / Oh My Pi，点击即可切换；切换时会立即清理上一数据源状态并显示加载进度，不会短暂展示旧项目或误报“0 个项目”。机器/节点选择器位于来源列表下方的独立层级。
 
 | 数据源 | CLI 工具 | 本地数据 | 特色内容块 |
 |--------|---------|---------|-----------|
 | **Claude** | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | `~/.claude/projects/` | Thinking、工具调用 |
 | **Codex** | [Codex CLI](https://github.com/openai/codex) | `~/.codex/sessions/` | Reasoning、函数调用 |
 | **Grok** | Grok CLI | `$GROK_HOME/sessions/` 或 `~/.grok/sessions/` | Reasoning、文本消息 |
+| **Oh My Pi** | [Oh My Pi](https://github.com/can1357/oh-my-pi) | `~/.omp/agent/sessions/` | Thinking、工具调用、工具结果 |
 
 ### 项目浏览
 
@@ -177,7 +178,7 @@ environment:
 - Claude：Ctrl+C 退出的会话也不会丢失
 - Codex：自动过滤非交互式会话（SubAgent、Exec 等内部会话）以及只有元数据、没有可见活动的 rollout
 - Grok：读取 `summary.json` 与 `chat_history.jsonl`，自动忽略系统提示、合成提醒与空会话
-- 支持删除会话（带确认弹窗）
+- Oh My Pi:读取 `sessions/` 根目录及直属项目目录的 session JSONL,自动忽略有同名主会话的 artifact 子目录;删除时主会话与 artifact 目录作为一个回收站条目
 - **会话导出**：单个会话悬停「导出」按钮，选 JSON / Markdown / HTML 任一格式保存；桌面端走系统保存框，Web 端浏览器下载
 - **批量选择**：右上角「选择」进入多选模式，可一次**批量导出**（每会话一个文件）或**批量删除**（移入回收站可还原）多个会话
 - **清理空会话**：存在无消息的空会话时标题栏出现「清理空会话 (N)」，可逐条勾选或全选批量删除
@@ -240,7 +241,7 @@ environment:
 
 ### Token 统计与花费分析
 
-> 当前仅支持 Claude 与 Codex；Grok 本地历史不包含统一的 Token/花费字段，因此切换到 Grok 时隐藏此入口。
+> 当前仅支持 Claude 与 Codex；Grok 和 Oh My Pi 本地历史不包含统一的 Token/花费字段，因此切换到这两个来源时隐藏此入口。
 
 汇总会话总数、请求总数、未缓存 Input / Output / Cache 读写 Token 用量、**累计 USD 花费**与**缓存命中率**，提供每日（或按小时）用量柱状图、花费趋势、缓存命中率走势、项目花费排行、按模型分组消耗。
 

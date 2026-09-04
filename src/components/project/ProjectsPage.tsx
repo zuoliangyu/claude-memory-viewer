@@ -134,7 +134,11 @@ export function ProjectsPage() {
   const emptyText =
     source === "claude"
       ? "未找到任何 Claude 项目。请确认 ~/.claude/projects/ 目录存在。"
-      : "未找到任何 Codex 项目。请确认 ~/.codex/sessions/ 目录存在。";
+      : source === "codex"
+        ? "未找到任何 Codex 项目。请确认 ~/.codex/sessions/ 目录存在。"
+        : source === "grok"
+          ? "未找到任何 Grok 项目。请确认 ~/.grok/sessions/ 目录存在。"
+          : "未找到任何 Oh My Pi 项目。请确认 ~/.omp/agent/sessions/ 目录存在。";
 
   const selectedProjects = filteredProjects.filter((p) => selected.has(p.id));
 

@@ -119,7 +119,7 @@ export function SearchPage() {
     if (role === "tool") return "Tool";
     if (role === "session") return "会话名";
     if (role === "tag") return "标签";
-    return source === "codex" ? "Codex" : "Claude";
+    return source === "codex" ? "Codex" : source === "grok" ? "Grok" : source === "omp" ? "Oh My Pi" : "Claude";
   };
 
   const allGlobalTags = useMemo(() => {

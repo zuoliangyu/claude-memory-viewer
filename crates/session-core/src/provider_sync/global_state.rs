@@ -12,8 +12,8 @@ pub fn normalize_paths(path: &Path) -> Result<bool, String> {
         return Ok(false);
     }
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let mut v: Value = serde_json::from_str(&text)
-        .map_err(|e| format!("parse global state: {}", e))?;
+    let mut v: Value =
+        serde_json::from_str(&text).map_err(|e| format!("parse global state: {}", e))?;
     let mut changed = false;
 
     for key in [

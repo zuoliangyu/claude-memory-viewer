@@ -32,16 +32,32 @@ fn bookmarks_path() -> Result<PathBuf, String> {
 pub fn load_bookmarks() -> BookmarksFile {
     let path = match bookmarks_path() {
         Ok(p) => p,
-        Err(_) => return BookmarksFile { version: 1, bookmarks: vec![] },
+        Err(_) => {
+            return BookmarksFile {
+                version: 1,
+                bookmarks: vec![],
+            }
+        }
     };
     if !path.exists() {
-        return BookmarksFile { version: 1, bookmarks: vec![] };
+        return BookmarksFile {
+            version: 1,
+            bookmarks: vec![],
+        };
     }
     let data = match fs::read_to_string(&path) {
         Ok(d) => d,
-        Err(_) => return BookmarksFile { version: 1, bookmarks: vec![] },
+        Err(_) => {
+            return BookmarksFile {
+                version: 1,
+                bookmarks: vec![],
+            }
+        }
     };
-    serde_json::from_str(&data).unwrap_or(BookmarksFile { version: 1, bookmarks: vec![] })
+    serde_json::from_str(&data).unwrap_or(BookmarksFile {
+        version: 1,
+        bookmarks: vec![],
+    })
 }
 
 fn save_bookmarks(file: &BookmarksFile) -> Result<(), String> {
@@ -51,10 +67,8 @@ fn save_bookmarks(file: &BookmarksFile) -> Result<(), String> {
 
     // Atomic write: write to tmp then rename
     let tmp_path = path.with_extension("json.tmp");
-    fs::write(&tmp_path, &json)
-        .map_err(|e| format!("Failed to write bookmarks tmp: {}", e))?;
-    fs::rename(&tmp_path, &path)
-        .map_err(|e| format!("Failed to rename bookmarks file: {}", e))?;
+    fs::write(&tmp_path, &json).map_err(|e| format!("Failed to write bookmarks tmp: {}", e))?;
+    fs::rename(&tmp_path, &path).map_err(|e| format!("Failed to rename bookmarks file: {}", e))?;
     Ok(())
 }
 
@@ -107,7 +121,11 @@ pub fn remove_bookmark(id: &str) -> Result<(), String> {
 pub fn list_bookmarks(source: Option<&str>) -> Vec<Bookmark> {
     let file = load_bookmarks();
     match source {
-        Some(s) => file.bookmarks.into_iter().filter(|b| b.source == s).collect(),
+        Some(s) => file
+            .bookmarks
+            .into_iter()
+            .filter(|b| b.source == s)
+            .collect(),
         None => file.bookmarks,
     }
 }

@@ -63,14 +63,12 @@ fn infer_openai_group(id: &str) -> String {
     "OpenAI".to_string()
 }
 
-
 /// Resolve Codex credentials by going through `cli_config`, which knows how
 /// to read `~/.codex/auth.json`, `~/.codex/config.toml` (including the new
 /// `[model_providers.<name>]` form), env vars, and shell rc files.
 fn get_codex_credentials() -> (String, String) {
     cli_config::get_credentials("codex")
 }
-
 
 /// Append `/v1/models` to a base URL, tolerating bases that already end in
 /// `/v1` (e.g. `https://example.com/v1`).
@@ -148,7 +146,11 @@ async fn fetch_openai_models(api_key: &str, base_url: &str) -> Result<Vec<ModelI
         created: Option<i64>,
     }
 
-    let effective_base = if base_url.is_empty() { "https://api.openai.com" } else { base_url };
+    let effective_base = if base_url.is_empty() {
+        "https://api.openai.com"
+    } else {
+        base_url
+    };
     let url = join_models_endpoint(effective_base);
     let client = reqwest::Client::new();
     let resp = client
@@ -174,17 +176,17 @@ async fn fetch_openai_models(api_key: &str, base_url: &str) -> Result<Vec<ModelI
         .into_iter()
         .map(|m| {
             let group = infer_openai_group(&m.id);
-            let name = m.id
-                .split('-')
-                .map(|s| {
-                    let mut c = s.chars();
-                    match c.next() {
-                        None => String::new(),
-                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
-                    }
-                })
-                .collect::<Vec<_>>()
-                .join("-");
+            let name =
+                m.id.split('-')
+                    .map(|s| {
+                        let mut c = s.chars();
+                        match c.next() {
+                            None => String::new(),
+                            Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("-");
             ModelInfo {
                 id: m.id,
                 name,
@@ -209,14 +211,73 @@ async fn fetch_openai_models(api_key: &str, base_url: &str) -> Result<Vec<ModelI
             .cmp(&priority(&b.group))
             .then(b.created.cmp(&a.created))
     });
-
     Ok(models)
 }
 
+#[derive(Debug, Deserialize)]
+struct OmpModelsConfig {
+    #[serde(default)]
+    providers: std::collections::HashMap<String, OmpProviderConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OmpProviderConfig {
+    #[serde(default)]
+    models: Vec<OmpModelConfig>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OmpModelConfig {
+    id: String,
+    name: Option<String>,
+}
+
+fn omp_models_config_path() -> Option<std::path::PathBuf> {
+    let agent_dir = crate::provider::omp::get_sessions_dir()?.parent()?.to_path_buf();
+    let yml = agent_dir.join("models.yml");
+    if yml.is_file() {
+        return Some(yml);
+    }
+    let yaml = agent_dir.join("models.yaml");
+    yaml.is_file().then_some(yaml)
+}
+
+fn read_omp_models() -> Result<Vec<ModelInfo>, String> {
+    let Some(path) = omp_models_config_path() else {
+        return Ok(Vec::new());
+    };
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("Failed to read OMP model config {}: {}", path.display(), e))?;
+    let config: OmpModelsConfig = serde_yml::from_str(&content)
+        .map_err(|e| format!("Failed to parse OMP model config {}: {}", path.display(), e))?;
+
+    let mut models = Vec::new();
+    for (provider, provider_config) in config.providers {
+        for model in provider_config.models {
+            let id = model.id.trim();
+            if id.is_empty() {
+                continue;
+            }
+            let qualified_id = format!("{provider}/{id}");
+            models.push(ModelInfo {
+                id: qualified_id,
+                name: model
+                    .name
+                    .filter(|name| !name.trim().is_empty())
+                    .unwrap_or_else(|| id.to_string()),
+                provider: provider.clone(),
+                group: provider.clone(),
+                created: None,
+            });
+        }
+    }
+    models.sort_by(|a, b| a.group.cmp(&b.group).then_with(|| a.name.cmp(&b.name)));
+    Ok(models)
+}
 
 /// List available models.
 ///
-/// - `source`: "claude" or "codex"
+/// - `source`: "claude", "codex", or "omp"
 /// - `api_key`: user-provided key (empty = auto-detect from config/env)
 /// - `base_url`: base URL (empty = default for the given source)
 pub async fn list_models(
@@ -224,13 +285,24 @@ pub async fn list_models(
     api_key: &str,
     base_url: &str,
 ) -> Result<Vec<ModelInfo>, String> {
+    if source == "omp" {
+        return read_omp_models();
+    }
     if source == "codex" {
         let (cfg_key, cfg_url) = get_codex_credentials();
-        let key = if api_key.is_empty() { cfg_key } else { api_key.to_string() };
+        let key = if api_key.is_empty() {
+            cfg_key
+        } else {
+            api_key.to_string()
+        };
         if key.is_empty() {
             return Ok(vec![]);
         }
-        let url = if base_url.is_empty() { cfg_url } else { base_url.to_string() };
+        let url = if base_url.is_empty() {
+            cfg_url
+        } else {
+            base_url.to_string()
+        };
         return fetch_openai_models(&key, &url).await;
     }
     let (resolved_key, resolved_url) = if api_key.is_empty() && base_url.is_empty() {

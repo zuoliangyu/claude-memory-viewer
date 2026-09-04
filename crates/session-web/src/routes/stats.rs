@@ -1,6 +1,6 @@
 use axum::extract::Query;
-use axum::response::Json;
 use axum::http::StatusCode;
+use axum::response::Json;
 use serde::Deserialize;
 use session_core::models::stats::{
     ProjectCostEntry, RequestLogPage, SessionCostSummary, TokenUsageSummary,
@@ -19,12 +19,11 @@ pub async fn get_stats(
     Query(params): Query<StatsQuery>,
 ) -> Result<Json<TokenUsageSummary>, (StatusCode, String)> {
     let StatsQuery { source, time_zone } = params;
-    let result = tokio::task::spawn_blocking(move || {
-        stats::get_stats(&source, time_zone.as_deref())
-    })
-    .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let result =
+        tokio::task::spawn_blocking(move || stats::get_stats(&source, time_zone.as_deref()))
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(result))
 }
@@ -66,10 +65,11 @@ pub async fn get_request_log(
     let page = params.page.unwrap_or(0);
     let page_size = params.page_size.unwrap_or(200);
 
-    let result = tokio::task::spawn_blocking(move || stats::get_request_log(filter, page, page_size))
-        .await
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let result =
+        tokio::task::spawn_blocking(move || stats::get_request_log(filter, page, page_size))
+            .await
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(result))
 }
 

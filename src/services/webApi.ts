@@ -4,6 +4,7 @@ import type {
   PaginatedMessages,
   RangeMessages,
   Trajectory,
+  QuestionIndexEntry,
   SearchResult,
   TokenUsageSummary,
   RequestLogPage,
@@ -268,6 +269,14 @@ export async function getMessagesRange(
     start: String(start),
     end: String(end),
   });
+}
+
+/** Fetch all user-question navigation entries without loading every message. */
+export async function getQuestionIndex(
+  source: string,
+  filePath: string,
+): Promise<QuestionIndexEntry[]> {
+  return apiFetch("/api/messages/questions", { source, filePath });
 }
 
 export async function getTrajectory(

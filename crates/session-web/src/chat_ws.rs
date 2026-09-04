@@ -3,8 +3,8 @@ use axum::response::Response;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::process::Stdio;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -52,10 +52,11 @@ fn canonicalize_existing_dir(path: &str) -> Result<PathBuf, String> {
 fn allowed_project_roots(source: &str) -> Result<Vec<PathBuf>, String> {
     let projects = if source == "codex" {
         session_core::provider::codex::get_projects()
+    } else if source == "omp" {
+        session_core::provider::omp::get_projects()
     } else {
         session_core::provider::claude::get_projects()
     }?;
-
     let mut roots = Vec::new();
     for project in projects {
         let display_path = project.display_path;
@@ -77,7 +78,10 @@ fn allowed_project_roots(source: &str) -> Result<Vec<PathBuf>, String> {
     roots.dedup();
 
     if roots.is_empty() {
-        Err(format!("No accessible {} project directories are available", source))
+        Err(format!(
+            "No accessible {} project directories are available",
+            source
+        ))
     } else {
         Ok(roots)
     }
@@ -356,26 +360,40 @@ async fn run_cli_process(
     let cli_path = cli::find_cli(source)?;
     let credentials =
         cli_config::resolve_credentials(source, Some(api_key_override), Some(base_url_override))?;
-
     let mut cmd = Command::new(&cli_path);
-
-    if let Some(sid) = resume_session_id {
-        cmd.arg("--resume").arg(sid);
+    let resume_target = resume_session_id.map(|session_id| {
+        if source == "omp" {
+            session_core::provider::omp::find_session_file(project_path, session_id)
+                .map(|path| path.to_string_lossy().into_owned())
+                .unwrap_or_else(|| session_id.to_string())
+        } else {
+            session_id.to_string()
+        }
+    });
+    if let Some(resume_target) = resume_target.as_deref() {
+        cmd.arg("--resume").arg(resume_target);
     }
-    cmd.arg("-p").arg(prompt);
     if !model.is_empty() {
-        // Claude CLI expects CLI model IDs rather than the "-latest" alias.
-        let cli_model = model.strip_suffix("-latest").unwrap_or(model);
-        cmd.arg("--model").arg(cli_model);
+        if source == "claude" {
+            let cli_model = model.strip_suffix("-latest").unwrap_or(model);
+            cmd.arg("--model").arg(cli_model);
+        } else {
+            cmd.arg("--model").arg(model);
+        }
     }
-    cmd.arg("--output-format").arg("stream-json");
-    cmd.arg("--include-partial-messages");
-    cmd.arg("--verbose");
-    // Honor the client's skip_permissions choice. When false the CLI may hang
-    // waiting on a permission prompt that web mode has no terminal to answer
-    // — that's the user's call.
-    if skip_permissions {
-        cmd.arg("--dangerously-skip-permissions");
+    if source == "omp" {
+        cmd.arg("--mode").arg("json");
+        cmd.arg("--no-pty");
+        if skip_permissions {
+            cmd.arg("--auto-approve");
+        }
+    } else {
+        cmd.arg("--output-format").arg("stream-json");
+        cmd.arg("--include-partial-messages");
+        cmd.arg("--verbose");
+        if skip_permissions {
+            cmd.arg("--dangerously-skip-permissions");
+        }
     }
 
     // Web mode: no interactive terminal, close stdin so CLI doesn't hang
@@ -481,11 +499,8 @@ async fn run_codex_chat_via_app_server(
 ) -> Result<(), String> {
     let project_dir = resolve_project_dir("codex", project_path)?;
     let project_dir_str = project_dir.to_string_lossy().to_string();
-    let credentials = cli_config::resolve_credentials(
-        "codex",
-        Some(api_key_override),
-        Some(base_url_override),
-    )?;
+    let credentials =
+        cli_config::resolve_credentials("codex", Some(api_key_override), Some(base_url_override))?;
 
     let server = CodexAppServer::global();
     let model_opt = if model.is_empty() { None } else { Some(model) };
@@ -578,7 +593,11 @@ async fn run_codex_chat_via_app_server(
         let routing_for_err = routing_id.clone();
         let abort_for_err = abort.clone();
         tokio::spawn(async move {
-            let m = if model_owned.is_empty() { None } else { Some(model_owned.as_str()) };
+            let m = if model_owned.is_empty() {
+                None
+            } else {
+                Some(model_owned.as_str())
+            };
             if let Err(e) = server
                 .start_turn(&creds, &tid, &prompt_owned, m, Some(cwd.as_str()))
                 .await
@@ -717,11 +736,7 @@ fn compose_chat_path(cmd: &mut Command, cli_path: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn apply_provider_env(
-    cmd: &mut Command,
-    source: &str,
-    credentials: &ResolvedCliCredentials,
-) {
+fn apply_provider_env(cmd: &mut Command, source: &str, credentials: &ResolvedCliCredentials) {
     for key in &[
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
@@ -743,7 +758,7 @@ fn apply_provider_env(
             cmd.env("CODEX_BASE_URL", &credentials.base_url);
             cmd.env("OPENAI_BASE_URL", &credentials.base_url);
         }
-    } else {
+    } else if source == "claude" {
         if !credentials.api_key.is_empty() {
             cmd.env("ANTHROPIC_API_KEY", &credentials.api_key);
             cmd.env("ANTHROPIC_AUTH_TOKEN", &credentials.api_key);

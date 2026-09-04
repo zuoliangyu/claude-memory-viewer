@@ -6,7 +6,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use session_core::parser::path_encoder::get_projects_dir;
-use session_core::provider::{claude, codex, grok};
+use session_core::provider::{claude, codex, grok, omp};
 use session_core::watcher_batch::collect_until_quiet;
 
 /// Minimum interval between emitting fs-change events to the frontend.
@@ -20,11 +20,13 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
     let claude_dir = get_projects_dir();
     let codex_dir = codex::get_sessions_dir();
     let grok_dir = grok::get_sessions_dir();
+    let omp_dir = omp::get_sessions_dir();
 
     // At least one directory must exist
-    if claude_dir.as_ref().map(|d| d.exists()).unwrap_or(false)
-        || codex_dir.as_ref().map(|d| d.exists()).unwrap_or(false)
-        || grok_dir.as_ref().map(|d| d.exists()).unwrap_or(false)
+    if claude_dir.as_ref().map(|dir| dir.exists()).unwrap_or(false)
+        || codex_dir.as_ref().map(|dir| dir.exists()).unwrap_or(false)
+        || grok_dir.as_ref().map(|dir| dir.exists()).unwrap_or(false)
+        || omp_dir.as_ref().map(|dir| dir.exists()).unwrap_or(false)
     {
         // ok, proceed
     } else {
@@ -60,6 +62,11 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
             }
         }
         if let Some(ref dir) = grok_dir {
+            if dir.exists() {
+                let _ = watcher.watch(dir, RecursiveMode::Recursive);
+            }
+        }
+        if let Some(ref dir) = omp_dir {
             if dir.exists() {
                 let _ = watcher.watch(dir, RecursiveMode::Recursive);
             }
@@ -104,6 +111,10 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                     .as_ref()
                     .map(|dir| paths.iter().any(|path| path.starts_with(dir)))
                     .unwrap_or(false);
+                let is_omp_change = omp_dir
+                    .as_ref()
+                    .map(|dir| paths.iter().any(|path| path.starts_with(dir)))
+                    .unwrap_or(false);
 
                 // Hand each provider only the paths under its own
                 // directory, so it can surgically update just the
@@ -141,6 +152,18 @@ pub fn start_watcher(app_handle: AppHandle) -> Result<(), String> {
                             .collect();
                         if !provider_paths.is_empty() {
                             grok::invalidate_paths(&provider_paths);
+                        }
+                    }
+                }
+                if is_omp_change {
+                    if let Some(ref dir) = omp_dir {
+                        let provider_paths: Vec<PathBuf> = paths
+                            .iter()
+                            .filter(|path| path.starts_with(dir))
+                            .cloned()
+                            .collect();
+                        if !provider_paths.is_empty() {
+                            omp::invalidate_paths(&provider_paths);
                         }
                     }
                 }

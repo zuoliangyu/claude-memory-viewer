@@ -1,10 +1,10 @@
 use axum::extract::Query;
-use axum::response::Json;
 use axum::http::StatusCode;
+use axum::response::Json;
 use serde::Deserialize;
 use session_core::models::project::ProjectEntry;
-use session_core::provider::{claude, codex, grok};
 use session_core::provider::claude::{DeleteLevel, DeleteResult};
+use session_core::provider::{claude, codex, grok, omp};
 
 #[derive(Deserialize)]
 pub struct ProjectsQuery {
@@ -22,9 +22,11 @@ pub async fn get_projects(
         ("claude", true) => claude::refresh_projects_cache(),
         ("codex", true) => codex::rebuild_projects_cache(),
         ("grok", true) => grok::rebuild_projects_cache(),
+        ("omp", true) => omp::rebuild_projects_cache(),
         ("claude", false) => claude::get_projects(),
         ("codex", false) => codex::get_projects(),
         ("grok", false) => grok::get_projects(),
+        ("omp", false) => omp::get_projects(),
         _ => Err(format!("Unknown source: {}", source)),
     })
     .await
@@ -57,7 +59,11 @@ pub async fn delete_project(
         "claude" => claude::delete_project(&project_id, level),
         "codex" => codex::delete_project(&project_id),
         "grok" => grok::delete_project(&project_id),
-        _ => Err(format!("Delete project not supported for source: {}", source)),
+        "omp" => omp::delete_project(&project_id),
+        _ => Err(format!(
+            "Delete project not supported for source: {}",
+            source
+        )),
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
@@ -80,11 +86,12 @@ pub struct SetAliasBody {
 pub async fn set_project_alias(
     axum::Json(body): axum::Json<SetAliasBody>,
 ) -> Result<axum::Json<()>, (StatusCode, String)> {
-    let res = tokio::task::spawn_blocking(move || {
-        match body.source.as_str() {
-            "claude" => claude::set_project_alias(&body.project_id, body.alias),
-            _ => Err(format!("set_project_alias not supported for source: {}", body.source)),
-        }
+    let res = tokio::task::spawn_blocking(move || match body.source.as_str() {
+        "claude" => claude::set_project_alias(&body.project_id, body.alias),
+        _ => Err(format!(
+            "set_project_alias not supported for source: {}",
+            body.source
+        )),
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

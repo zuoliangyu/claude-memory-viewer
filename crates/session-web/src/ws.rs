@@ -17,7 +17,7 @@ const DEBOUNCE_DURATION: Duration = Duration::from_millis(1000);
 const MAX_BATCH_DURATION: Duration = Duration::from_secs(2);
 
 use session_core::parser::path_encoder::get_projects_dir;
-use session_core::provider::{claude, codex, grok};
+use session_core::provider::{claude, codex, grok, omp};
 use session_core::watcher_batch::collect_until_quiet;
 
 /// Shared broadcast sender for file change events
@@ -82,6 +82,11 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
             let _ = watcher.watch(&dir, RecursiveMode::Recursive);
         }
     }
+    if let Some(dir) = omp::get_sessions_dir() {
+        if dir.exists() {
+            let _ = watcher.watch(&dir, RecursiveMode::Recursive);
+        }
+    }
 
     while let Ok(first) = notify_rx.recv() {
         let events = collect_until_quiet(first, DEBOUNCE_DURATION, MAX_BATCH_DURATION, |timeout| {
@@ -134,6 +139,16 @@ fn run_file_watcher_once(tx_clone: &broadcast::Sender<Vec<String>>) {
                     .collect();
                 if !grok_paths.is_empty() {
                     grok::invalidate_paths(&grok_paths);
+                }
+            }
+            if let Some(dir) = omp::get_sessions_dir() {
+                let omp_paths: Vec<PathBuf> = paths
+                    .iter()
+                    .filter(|path| path.starts_with(&dir))
+                    .cloned()
+                    .collect();
+                if !omp_paths.is_empty() {
+                    omp::invalidate_paths(&omp_paths);
                 }
             }
 

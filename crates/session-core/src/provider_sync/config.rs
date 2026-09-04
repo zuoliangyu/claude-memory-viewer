@@ -25,12 +25,11 @@ fn parse_root_provider(text: &str) -> Option<String> {
         }
         if let Some(rest) = line.strip_prefix("model_provider") {
             let rest = rest.trim_start();
-            let Some(rest) = rest.strip_prefix('=') else { continue };
+            let Some(rest) = rest.strip_prefix('=') else {
+                continue;
+            };
             let value = strip_comment(rest).trim();
-            let unquoted = value
-                .trim_matches('"')
-                .trim_matches('\'')
-                .to_string();
+            let unquoted = value.trim_matches('"').trim_matches('\'').to_string();
             if !unquoted.is_empty() {
                 return Some(unquoted);
             }
@@ -62,7 +61,9 @@ pub fn list_configured_providers(config_path: &Path) -> Vec<String> {
     let mut out = Vec::new();
     for line in text.lines() {
         let line = line.trim();
-        let Some(rest) = line.strip_prefix("[model_providers.") else { continue };
+        let Some(rest) = line.strip_prefix("[model_providers.") else {
+            continue;
+        };
         let Some(end) = rest.find(']') else { continue };
         let id = rest[..end].trim().trim_matches('"').to_string();
         if !id.is_empty() && !out.contains(&id) {

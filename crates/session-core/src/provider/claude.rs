@@ -12,10 +12,10 @@ use crate::models::session::{
     SessionIndexEntry, SessionStatus, SessionsIndex, SessionsIndexFileEntry,
 };
 use crate::parser::jsonl as claude_parser;
-use crate::scan_progress::{self, Phase};
 use crate::parser::path_encoder::{
     decode_project_path_validated, get_projects_dir, short_name_from_path,
 };
+use crate::scan_progress::{self, Phase};
 use crate::state::{clear_message_cache, clear_message_cache_for_path};
 
 #[derive(serde::Deserialize, Debug, Clone, PartialEq)]
@@ -155,9 +155,9 @@ fn reconcile_cache_with_signatures(
     }
 
     let session_count = cache.sessions_by_project.len();
-    cache.sessions_by_project.retain(|project_id, cached| {
-        current.get(project_id) == Some(&cached.signature)
-    });
+    cache
+        .sessions_by_project
+        .retain(|project_id, cached| current.get(project_id) == Some(&cached.signature));
     let sessions_changed = session_count != cache.sessions_by_project.len();
 
     (cache, projects_changed || sessions_changed)
@@ -387,10 +387,12 @@ pub fn invalidate_paths(changed: &[PathBuf]) {
 }
 
 fn project_path_from_index(index: &SessionsIndex) -> Option<String> {
-    index
-        .original_path
-        .clone()
-        .or_else(|| index.entries.iter().find_map(|entry| entry.project_path.clone()))
+    index.original_path.clone().or_else(|| {
+        index
+            .entries
+            .iter()
+            .find_map(|entry| entry.project_path.clone())
+    })
 }
 
 fn read_sessions_index(project_dir: &Path) -> Option<SessionsIndex> {
@@ -403,8 +405,8 @@ fn read_sessions_index(project_dir: &Path) -> Option<SessionsIndex> {
 /// 读取项目别名。文件不存在或 alias 字段缺失时返回 Ok(None)，不报错。
 /// 使用 canonicalize + starts_with 防止路径遍历。
 pub fn get_project_alias(project_id: &str) -> Result<Option<String>, String> {
-    let projects_dir = get_projects_dir()
-        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    let projects_dir =
+        get_projects_dir().ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
     let project_dir = projects_dir.join(project_id);
     if !project_dir.exists() {
         return Ok(None);
@@ -425,8 +427,7 @@ pub fn get_project_alias(project_id: &str) -> Result<Option<String>, String> {
     }
     let content = fs::read_to_string(&meta_path)
         .map_err(|e| format!("Failed to read project meta: {}", e))?;
-    let meta: ProjectMeta = serde_json::from_str(&content)
-        .unwrap_or_default();
+    let meta: ProjectMeta = serde_json::from_str(&content).unwrap_or_default();
     Ok(meta.alias)
 }
 
@@ -437,8 +438,8 @@ pub fn get_project_alias(project_id: &str) -> Result<Option<String>, String> {
 ///
 /// 使用 canonicalize + starts_with 防止路径遍历。
 pub fn set_project_alias(project_id: &str, alias: Option<String>) -> Result<(), String> {
-    let projects_dir = get_projects_dir()
-        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    let projects_dir =
+        get_projects_dir().ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
     let project_dir = projects_dir.join(project_id);
 
     if !project_dir.exists() {
@@ -518,66 +519,66 @@ fn scan_projects_from_disk(projects_dir: &Path) -> Result<Vec<ProjectEntry>, Str
         .into_par_iter()
         .filter_map(|path| {
             let result = (|| {
-            let encoded_name = path.file_name().and_then(|n| n.to_str())?.to_string();
+                let encoded_name = path.file_name().and_then(|n| n.to_str())?.to_string();
 
-            let parsed_index = read_sessions_index(&path);
+                let parsed_index = read_sessions_index(&path);
 
-            let (display_path, path_exists) = parsed_index
-                .as_ref()
-                .and_then(project_path_from_index)
-                .map(|p| {
-                    let exists = std::path::Path::new(&p).exists();
-                    (p, exists)
+                let (display_path, path_exists) = parsed_index
+                    .as_ref()
+                    .and_then(project_path_from_index)
+                    .map(|p| {
+                        let exists = std::path::Path::new(&p).exists();
+                        (p, exists)
+                    })
+                    .unwrap_or_else(|| {
+                        let decoded = decode_project_path_validated(&encoded_name);
+                        (decoded.display_path, decoded.path_exists)
+                    });
+                let short_name = short_name_from_path(&display_path);
+
+                let fast_count = count_jsonl_files_fast(&path);
+                if fast_count == 0 {
+                    return None;
+                }
+
+                let session_count = cache
+                    .sessions_by_project
+                    .get(&encoded_name)
+                    .map(|cached| {
+                        cached
+                            .entries
+                            .iter()
+                            .filter(|entry| entry.status == SessionStatus::Valid)
+                            .count()
+                    })
+                    .unwrap_or_else(|| count_valid_jsonl_files(&path));
+                if session_count == 0 {
+                    return None;
+                }
+
+                let last_modified = fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .ok()
+                    .map(|t| {
+                        let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
+                        chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    });
+
+                let alias = get_project_alias(&encoded_name).unwrap_or(None);
+                Some(ProjectEntry {
+                    source: "claude".to_string(),
+                    id: encoded_name,
+                    display_path,
+                    short_name,
+                    session_count,
+                    last_modified,
+                    model_provider: None,
+                    alias,
+                    path_exists,
+                    is_virtual: false,
                 })
-                .unwrap_or_else(|| {
-                    let decoded = decode_project_path_validated(&encoded_name);
-                    (decoded.display_path, decoded.path_exists)
-                });
-            let short_name = short_name_from_path(&display_path);
-
-            let fast_count = count_jsonl_files_fast(&path);
-            if fast_count == 0 {
-                return None;
-            }
-
-            let session_count = cache
-                .sessions_by_project
-                .get(&encoded_name)
-                .map(|cached| {
-                    cached
-                        .entries
-                        .iter()
-                        .filter(|entry| entry.status == SessionStatus::Valid)
-                        .count()
-                })
-                .unwrap_or_else(|| count_valid_jsonl_files(&path));
-            if session_count == 0 {
-                return None;
-            }
-
-            let last_modified = fs::metadata(&path)
-                .and_then(|m| m.modified())
-                .ok()
-                .map(|t| {
-                    let duration = t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-                    chrono::DateTime::from_timestamp(duration.as_secs() as i64, 0)
-                        .map(|dt| dt.to_rfc3339())
-                        .unwrap_or_default()
-                });
-
-            let alias = get_project_alias(&encoded_name).unwrap_or(None);
-            Some(ProjectEntry {
-                source: "claude".to_string(),
-                id: encoded_name,
-                display_path,
-                short_name,
-                session_count,
-                last_modified,
-                model_provider: None,
-                alias,
-                path_exists,
-                is_virtual: false,
-            })
             })();
             scan_progress::inc(progress);
             result
@@ -654,7 +655,6 @@ pub fn get_invalid_sessions(encoded_name: &str) -> Result<Vec<SessionIndexEntry>
         .filter(|s| s.status != SessionStatus::Valid)
         .collect())
 }
-
 
 /// Parse messages from a Claude JSONL file
 pub fn parse_session_messages(
@@ -901,8 +901,8 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
         return Err(format!("Invalid project id: {}", project_id));
     }
 
-    let projects_dir = get_projects_dir()
-        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    let projects_dir =
+        get_projects_dir().ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
     let dir = projects_dir.join(project_id);
     if !dir.exists() {
         return Err(format!("Project not found: {}", project_id));
@@ -949,7 +949,10 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
                     None,
                     Some(project_name.clone()),
                 ) {
-                    eprintln!("[delete_project] Failed to move {:?} to recyclebin: {}", p, e);
+                    eprintln!(
+                        "[delete_project] Failed to move {:?} to recyclebin: {}",
+                        p, e
+                    );
                 }
             }
         }
@@ -958,7 +961,10 @@ pub fn delete_project(project_id: &str, level: DeleteLevel) -> Result<DeleteResu
     // 删除（现已清空 jsonl 的）项目目录
     if let Err(e) = fs::remove_dir_all(&canonical_dir) {
         // 可能还有非 jsonl 文件，或目录不为空，静默记录
-        eprintln!("[delete_project] Failed to remove dir {:?}: {}", canonical_dir, e);
+        eprintln!(
+            "[delete_project] Failed to remove dir {:?}: {}",
+            canonical_dir, e
+        );
     }
 
     let mut config_cleaned = false;
@@ -1069,8 +1075,8 @@ fn clean_bookmarks_for_project(project_id: &str) -> usize {
 /// 扫描所有项目目录，将孤儿 UUID 子目录批量移入回收站。
 /// 返回成功移入的数量。
 pub fn cleanup_all_orphan_dirs() -> Result<usize, String> {
-    let projects_dir = get_projects_dir()
-        .ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
+    let projects_dir =
+        get_projects_dir().ok_or_else(|| "Cannot find Claude projects directory".to_string())?;
     if !projects_dir.exists() {
         return Ok(0);
     }
@@ -1122,7 +1128,11 @@ pub fn cleanup_all_orphan_dirs() -> Result<usize, String> {
                 // UUID 格式：36 字符，含 4 个连字符；跳过最近 5 分钟内修改的（可能是 CC subagent 正在使用）
                 let recently_modified = fs::metadata(&path)
                     .and_then(|m| m.modified())
-                    .and_then(|t| std::time::SystemTime::now().duration_since(t).map_err(|e| std::io::Error::other(e.to_string())))
+                    .and_then(|t| {
+                        std::time::SystemTime::now()
+                            .duration_since(t)
+                            .map_err(|e| std::io::Error::other(e.to_string()))
+                    })
                     .map(|d| d.as_secs() < 300)
                     .unwrap_or(true);
                 if dir_name.len() == 36
@@ -1158,8 +1168,7 @@ fn count_jsonl_files_fast(dir: &Path) -> usize {
             rd.flatten()
                 .filter(|e| {
                     let p = e.path();
-                    p.is_file()
-                        && p.extension().map(|ext| ext == "jsonl").unwrap_or(false)
+                    p.is_file() && p.extension().map(|ext| ext == "jsonl").unwrap_or(false)
                 })
                 .count()
         })

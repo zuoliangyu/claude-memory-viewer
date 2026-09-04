@@ -27,10 +27,15 @@ pub fn import_skills(
     project_path: Option<String>,
     overwrite: bool,
 ) -> Result<ImportResult, String> {
-    let bytes = std::fs::read(&archive_path)
-        .map_err(|e| format!("读取压缩包失败: {}", e))?;
+    let bytes = std::fs::read(&archive_path).map_err(|e| format!("读取压缩包失败: {}", e))?;
     let archive_name = std::path::Path::new(&archive_path)
         .file_name()
         .and_then(|n| n.to_str());
-    skills::import_skills_from_bytes(&bytes, &scope, project_path.as_deref(), overwrite, archive_name)
+    skills::import_skills_from_bytes(
+        &bytes,
+        &scope,
+        project_path.as_deref(),
+        overwrite,
+        archive_name,
+    )
 }

@@ -72,6 +72,7 @@ pub(crate) enum SessionSource {
     Claude,
     Codex,
     Grok,
+    Omp,
 }
 
 impl SessionSource {
@@ -80,6 +81,7 @@ impl SessionSource {
             "claude" => Ok(Self::Claude),
             "codex" => Ok(Self::Codex),
             "grok" => Ok(Self::Grok),
+            "omp" => Ok(Self::Omp),
             _ => Err(format!("Unknown source: {}", source)),
         }
     }
@@ -92,10 +94,7 @@ fn bearer_token(headers: &HeaderMap) -> Option<&str> {
         .and_then(|header| header.strip_prefix("Bearer "))
 }
 
-pub(crate) fn require_auth(
-    headers: &HeaderMap,
-    expected: &AppToken,
-) -> Result<(), StatusCode> {
+pub(crate) fn require_auth(headers: &HeaderMap, expected: &AppToken) -> Result<(), StatusCode> {
     let Some(expected_token) = expected.0.as_deref() else {
         return Ok(());
     };
@@ -169,18 +168,12 @@ pub(crate) fn resolve_claude_project_dir(project_id: &str) -> Result<PathBuf, St
 
 /// Validate a session file path. Delegates to `session_core::paths` so the
 /// Tauri and web codepaths share a single source of truth.
-pub(crate) fn resolve_session_file_path(
-    source: &str,
-    file_path: &str,
-) -> Result<PathBuf, String> {
+pub(crate) fn resolve_session_file_path(source: &str, file_path: &str) -> Result<PathBuf, String> {
     session_core::paths::validate_session_file(source, file_path)
 }
 
 /// Auth check middleware — reads token from AppToken extension
-async fn check_auth(
-    request: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
+async fn check_auth(request: Request, next: Next) -> Result<Response, StatusCode> {
     let expected = request
         .extensions()
         .get::<AppToken>()
@@ -222,7 +215,9 @@ struct WsTicketResponse {
 async fn issue_ws_ticket(
     axum::extract::Extension(store): axum::extract::Extension<WsTicketStore>,
 ) -> Json<WsTicketResponse> {
-    Json(WsTicketResponse { ticket: store.issue() })
+    Json(WsTicketResponse {
+        ticket: store.issue(),
+    })
 }
 
 async fn chat_ws_auth_handler(
@@ -274,9 +269,15 @@ async fn main() {
     let api_routes = Router::new()
         .route("/api/projects", get(routes::projects::get_projects))
         .route("/api/projects", delete(routes::projects::delete_project))
-        .route("/api/projects/alias", put(routes::projects::set_project_alias))
+        .route(
+            "/api/projects/alias",
+            put(routes::projects::set_project_alias),
+        )
         .route("/api/sessions", get(routes::sessions::get_sessions))
-        .route("/api/sessions/invalid", get(routes::sessions::get_invalid_sessions))
+        .route(
+            "/api/sessions/invalid",
+            get(routes::sessions::get_invalid_sessions),
+        )
         .route("/api/sessions", delete(routes::sessions::delete_session))
         .route(
             "/api/sessions/meta",
@@ -287,19 +288,32 @@ async fn main() {
             post(routes::sessions::rename_chat_session),
         )
         .route("/api/tags", get(routes::sessions::get_all_tags))
-        .route("/api/cross-tags", get(routes::sessions::get_cross_project_tags))
+        .route(
+            "/api/cross-tags",
+            get(routes::sessions::get_cross_project_tags),
+        )
         .route("/api/messages", get(routes::messages::get_messages))
         .route(
             "/api/messages/range",
             get(routes::messages::get_messages_range),
         )
+        .route(
+            "/api/messages/questions",
+            get(routes::messages::get_question_index),
+        )
         .route("/api/trajectory", get(routes::trajectory::get_trajectory))
         .route("/api/export", get(routes::export::export_session))
-        .route("/api/scan-progress", get(routes::progress::get_scan_progress))
+        .route(
+            "/api/scan-progress",
+            get(routes::progress::get_scan_progress),
+        )
         .route("/api/search", get(routes::search::global_search))
         .route("/api/skills", get(routes::skills::list_skills))
         .route("/api/skills", delete(routes::skills::delete_skill))
-        .route("/api/skills/content", get(routes::skills::get_skill_content))
+        .route(
+            "/api/skills/content",
+            get(routes::skills::get_skill_content),
+        )
         .route("/api/skills/import", post(routes::skills::import_skills))
         .route(
             "/api/skills/sync-export",
@@ -313,17 +327,17 @@ async fn main() {
             "/api/sync/config-manifest",
             get(routes::sync_config::get_manifest),
         )
-        .route(
-            "/api/sync/mcp-apply",
-            post(routes::sync_config::apply_mcp),
-        )
+        .route("/api/sync/mcp-apply", post(routes::sync_config::apply_mcp))
         .route("/api/stats", get(routes::stats::get_stats))
         .route("/api/stats/requests", get(routes::stats::get_request_log))
         .route("/api/stats/projects", get(routes::stats::get_project_costs))
         .route("/api/stats/session", get(routes::stats::get_session_cost))
         .route("/api/bookmarks", get(routes::bookmarks::list_bookmarks))
         .route("/api/bookmarks", post(routes::bookmarks::add_bookmark))
-        .route("/api/bookmarks/{id}", delete(routes::bookmarks::remove_bookmark))
+        .route(
+            "/api/bookmarks/{id}",
+            delete(routes::bookmarks::remove_bookmark),
+        )
         .route("/api/recyclebin", get(routes::recyclebin::list_items))
         .route(
             "/api/recyclebin/{id}/restore",
@@ -345,10 +359,7 @@ async fn main() {
             "/api/provider-sync/status",
             get(routes::provider_sync::get_status),
         )
-        .route(
-            "/api/provider-sync/sync",
-            post(routes::provider_sync::sync),
-        )
+        .route("/api/provider-sync/sync", post(routes::provider_sync::sync))
         .route(
             "/api/provider-sync/switch",
             post(routes::provider_sync::switch),
@@ -379,8 +390,7 @@ async fn main() {
         .with_state(Arc::clone(&fs_tx));
 
     // Chat WebSocket route (no state needed, stateless per connection)
-    let chat_ws_routes = Router::new()
-        .route("/ws/chat", get(chat_ws_auth_handler));
+    let chat_ws_routes = Router::new().route("/ws/chat", get(chat_ws_auth_handler));
 
     // CLI detection + models + config route (with auth)
     let cli_routes = Router::new()
@@ -414,7 +424,5 @@ async fn main() {
         tracing::info!("No authentication (set --token or ASV_TOKEN to enable)");
     }
 
-    axum::serve(listener, app)
-        .await
-        .expect("Server error");
+    axum::serve(listener, app).await.expect("Server error");
 }

@@ -52,7 +52,11 @@ pub fn parse_session_messages(
     })
 }
 
-fn parse_tail_messages(path: &Path, page: usize, page_size: usize) -> Result<PaginatedMessages, String> {
+fn parse_tail_messages(
+    path: &Path,
+    page: usize,
+    page_size: usize,
+) -> Result<PaginatedMessages, String> {
     let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
     let window_len = tail_window_len(page, page_size);
@@ -306,7 +310,11 @@ pub fn extract_custom_title(path: &Path) -> Option<String> {
 /// - `title = Some("name")` → appends `{"type":"custom-title","customTitle":"name","sessionId":"..."}`
 /// - `title = None` or `title = Some("")` → appends `{"type":"custom-title","customTitle":"","sessionId":"..."}`
 ///   (empty string acts as "clear" signal; `extract_custom_title` will return None next read)
-pub fn append_custom_title(path: &Path, session_id: &str, title: Option<&str>) -> Result<(), String> {
+pub fn append_custom_title(
+    path: &Path,
+    session_id: &str,
+    title: Option<&str>,
+) -> Result<(), String> {
     use std::io::Write as IoWrite;
 
     let title_str = title.unwrap_or("").trim();
@@ -405,9 +413,7 @@ fn convert_content(content: &ContentValue) -> Vec<DisplayContentBlock> {
             if s.trim().is_empty() {
                 Vec::new()
             } else {
-                vec![DisplayContentBlock::Text {
-                    text: s.clone(),
-                }]
+                vec![DisplayContentBlock::Text { text: s.clone() }]
             }
         }
         ContentValue::Blocks(blocks) => {
@@ -447,7 +453,9 @@ fn convert_content(content: &ContentValue) -> Vec<DisplayContentBlock> {
                                     // tool_result content can be an array of content blocks
                                     let mut parts = Vec::new();
                                     for item in arr {
-                                        if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                                        if let Some(text) =
+                                            item.get("text").and_then(|t| t.as_str())
+                                        {
                                             parts.push(text.to_string());
                                         }
                                     }
@@ -512,88 +520,89 @@ pub fn scan_session_file_once(path: &Path) -> Option<SessionFileScan> {
     // being processed is the last one (to avoid marking truncated tails as Corrupt).
     let mut prev: Option<String> = None;
 
-    let process = |trimmed: &str, is_last: bool, scan: &mut SessionFileScan, metadata_done: &mut bool| {
-        if trimmed.is_empty() {
-            return;
-        }
-
-        let want_meta = !*metadata_done;
-        let want_user = trimmed.contains("\"type\":\"user\"");
-        let want_assistant = trimmed.contains("\"type\":\"assistant\"");
-        let want_title = trimmed.contains("\"type\":\"custom-title\"");
-
-        if !want_meta && !want_user && !want_assistant && !want_title {
-            return;
-        }
-
-        let value: serde_json::Value = match serde_json::from_str(trimmed) {
-            Ok(v) => v,
-            Err(_) => {
-                if !is_last {
-                    scan.is_corrupt = true;
-                }
+    let process =
+        |trimmed: &str, is_last: bool, scan: &mut SessionFileScan, metadata_done: &mut bool| {
+            if trimmed.is_empty() {
                 return;
             }
-        };
 
-        let record_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            let want_meta = !*metadata_done;
+            let want_user = trimmed.contains("\"type\":\"user\"");
+            let want_assistant = trimmed.contains("\"type\":\"assistant\"");
+            let want_title = trimmed.contains("\"type\":\"custom-title\"");
 
-        if want_meta {
-            if value.get("sessionId").and_then(|v| v.as_str()).is_some() {
-                *metadata_done = true;
+            if !want_meta && !want_user && !want_assistant && !want_title {
+                return;
             }
-            if scan.git_branch.is_none() {
-                scan.git_branch = value
-                    .get("gitBranch")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string());
-            }
-            if scan.project_path.is_none() {
-                scan.project_path = value
-                    .get("cwd")
-                    .and_then(|v| v.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string());
-            }
-        }
 
-        match record_type {
-            "user" => {
-                scan.message_count += 1;
-                scan.has_messages = true;
-                if scan.first_prompt.is_none() {
-                    if let Some(msg) = value.get("message") {
-                        if msg.get("role").and_then(|r| r.as_str()) == Some("user") {
-                            if let Some(text) =
-                                extract_first_text_from_json_content(msg.get("content"))
-                            {
-                                scan.first_prompt = Some(truncate_string(&text, 200));
+            let value: serde_json::Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => {
+                    if !is_last {
+                        scan.is_corrupt = true;
+                    }
+                    return;
+                }
+            };
+
+            let record_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+            if want_meta {
+                if value.get("sessionId").and_then(|v| v.as_str()).is_some() {
+                    *metadata_done = true;
+                }
+                if scan.git_branch.is_none() {
+                    scan.git_branch = value
+                        .get("gitBranch")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                }
+                if scan.project_path.is_none() {
+                    scan.project_path = value
+                        .get("cwd")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                }
+            }
+
+            match record_type {
+                "user" => {
+                    scan.message_count += 1;
+                    scan.has_messages = true;
+                    if scan.first_prompt.is_none() {
+                        if let Some(msg) = value.get("message") {
+                            if msg.get("role").and_then(|r| r.as_str()) == Some("user") {
+                                if let Some(text) =
+                                    extract_first_text_from_json_content(msg.get("content"))
+                                {
+                                    scan.first_prompt = Some(truncate_string(&text, 200));
+                                }
                             }
                         }
                     }
                 }
-            }
-            "assistant" => {
-                scan.message_count += 1;
-                scan.has_messages = true;
-            }
-            "custom-title" => {
-                let title = value
-                    .get("customTitle")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .trim()
-                    .to_string();
-                if title.is_empty() {
-                    scan.custom_title = None;
-                } else {
-                    scan.custom_title = Some(title);
+                "assistant" => {
+                    scan.message_count += 1;
+                    scan.has_messages = true;
                 }
+                "custom-title" => {
+                    let title = value
+                        .get("customTitle")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .trim()
+                        .to_string();
+                    if title.is_empty() {
+                        scan.custom_title = None;
+                    } else {
+                        scan.custom_title = Some(title);
+                    }
+                }
+                _ => {}
             }
-            _ => {}
-        }
-    };
+        };
 
     for line_result in reader.lines() {
         let line = match line_result {
@@ -673,8 +682,7 @@ pub fn fork_session_from_message(
 ) -> Result<ForkResult, String> {
     let new_session_id = uuid::Uuid::new_v4().to_string();
 
-    let file =
-        File::open(original_file_path).map_err(|e| format!("Failed to open file: {}", e))?;
+    let file = File::open(original_file_path).map_err(|e| format!("Failed to open file: {}", e))?;
     let reader = BufReader::new(file);
 
     // Phase 1: collect lines up to and including the target user message
@@ -706,10 +714,9 @@ pub fn fork_session_from_message(
         } else {
             // Phase 2: after finding the user message, look for the assistant reply
             if let Ok(record) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                let is_assistant =
-                    record.get("type").and_then(|v| v.as_str()) == Some("assistant");
-                let parent_matches = record.get("parentUuid").and_then(|v| v.as_str())
-                    == Some(user_msg_uuid);
+                let is_assistant = record.get("type").and_then(|v| v.as_str()) == Some("assistant");
+                let parent_matches =
+                    record.get("parentUuid").and_then(|v| v.as_str()) == Some(user_msg_uuid);
                 if is_assistant && parent_matches {
                     // Found the assistant reply — stop collecting
                     break;
@@ -770,8 +777,7 @@ pub fn fork_session_from_message(
                                             block.get("text").and_then(|v| v.as_str())
                                         {
                                             if !text.is_empty() {
-                                                first_prompt =
-                                                    Some(truncate_string(text, 200));
+                                                first_prompt = Some(truncate_string(text, 200));
                                                 break;
                                             }
                                         }
@@ -783,8 +789,7 @@ pub fn fork_session_from_message(
                 }
             }
 
-            output_lines
-                .push(serde_json::to_string(&value).unwrap_or_else(|_| line.clone()));
+            output_lines.push(serde_json::to_string(&value).unwrap_or_else(|_| line.clone()));
         } else {
             output_lines.push(line.clone());
         }

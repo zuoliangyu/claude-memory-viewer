@@ -9,9 +9,7 @@ pub struct ListQuery {
     pub source: Option<String>,
 }
 
-pub async fn list_bookmarks(
-    Query(params): Query<ListQuery>,
-) -> Json<Vec<Bookmark>> {
+pub async fn list_bookmarks(Query(params): Query<ListQuery>) -> Json<Vec<Bookmark>> {
     Json(bookmarks::list_bookmarks(params.source.as_deref()))
 }
 
@@ -23,9 +21,7 @@ pub async fn add_bookmark(
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
 }
 
-pub async fn remove_bookmark(
-    Path(id): Path<String>,
-) -> Result<Json<()>, (StatusCode, String)> {
+pub async fn remove_bookmark(Path(id): Path<String>) -> Result<Json<()>, (StatusCode, String)> {
     bookmarks::remove_bookmark(&id)
         .map(Json)
         .map_err(|e| (StatusCode::NOT_FOUND, e))

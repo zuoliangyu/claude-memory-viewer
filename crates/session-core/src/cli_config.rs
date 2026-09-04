@@ -118,6 +118,12 @@ pub fn read_cli_config(source: &str) -> Result<CliConfig, String> {
     if source == "codex" {
         return read_codex_cli_config();
     }
+    if source == "omp" {
+        return Ok(CliConfig {
+            source: "omp".to_string(),
+            ..Default::default()
+        });
+    }
     let (api_key, base_url, default_model, config_path) = read_claude_config()?;
     Ok(CliConfig {
         source: "claude".to_string(),
@@ -138,6 +144,12 @@ pub fn resolve_credentials(
     base_url_override: Option<&str>,
 ) -> Result<ResolvedCliCredentials, String> {
     let source = crate::cli::normalize_source(source)?;
+    if source == "omp" {
+        return Ok(ResolvedCliCredentials {
+            api_key: api_key_override.unwrap_or_default().trim().to_owned(),
+            base_url: base_url_override.unwrap_or_default().trim().to_owned(),
+        });
+    }
     let (fallback_api_key, fallback_base_url) = if source == "codex" {
         read_codex_credentials()
     } else {
@@ -186,12 +198,23 @@ fn read_codex_cli_config() -> Result<CliConfig, String> {
     // ── Per-file key extraction ──
     // config.toml key (direct field, [provider], or active [model_providers.<name>])
     let active_provider = active_codex_provider(&toml_cfg);
-    let toml_key = toml_cfg.api_key.clone().filter(|s| !s.is_empty())
-        .or_else(|| active_provider.as_ref().and_then(|p| p.api_key.clone()).filter(|s| !s.is_empty()))
+    let toml_key = toml_cfg
+        .api_key
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            active_provider
+                .as_ref()
+                .and_then(|p| p.api_key.clone())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_default();
 
     // auth.json key: prefer CODEX_API_KEY, fall back to OPENAI_API_KEY
-    let auth_key = auth.codex_api_key.clone().filter(|s| !s.is_empty())
+    let auth_key = auth
+        .codex_api_key
+        .clone()
+        .filter(|s| !s.is_empty())
         .or_else(|| auth.openai_api_key.clone().filter(|s| !s.is_empty()))
         .unwrap_or_default();
 
@@ -210,8 +233,16 @@ fn read_codex_cli_config() -> Result<CliConfig, String> {
     };
 
     // ── Base URL: config.toml is primary (it's the dedicated URL store) ──
-    let toml_url = toml_cfg.base_url.clone().filter(|s| !s.is_empty())
-        .or_else(|| active_provider.as_ref().and_then(|p| p.base_url.clone()).filter(|s| !s.is_empty()))
+    let toml_url = toml_cfg
+        .base_url
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            active_provider
+                .as_ref()
+                .and_then(|p| p.base_url.clone())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_default();
 
     let (base_url, base_url_source) = if !toml_url.is_empty() {
@@ -259,30 +290,49 @@ pub(crate) fn read_codex_credentials() -> (String, String) {
         .unwrap_or_default();
 
     // API key: auth.json first (primary), then config.toml, then env
-    let auth_key = auth.codex_api_key.filter(|s| !s.is_empty())
+    let auth_key = auth
+        .codex_api_key
+        .filter(|s| !s.is_empty())
         .or_else(|| auth.openai_api_key.filter(|s| !s.is_empty()))
         .unwrap_or_default();
     let active_provider = active_codex_provider(&toml_cfg);
-    let toml_key = toml_cfg.api_key.clone().filter(|s| !s.is_empty())
-        .or_else(|| active_provider.as_ref().and_then(|p| p.api_key.clone()).filter(|s| !s.is_empty()))
+    let toml_key = toml_cfg
+        .api_key
+        .clone()
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            active_provider
+                .as_ref()
+                .and_then(|p| p.api_key.clone())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_default();
     let api_key = if !auth_key.is_empty() {
         auth_key
     } else if !toml_key.is_empty() {
         toml_key
     } else {
-        env::var("CODEX_API_KEY").unwrap_or_default()
+        env::var("CODEX_API_KEY")
+            .unwrap_or_default()
             .pipe_if_empty(|| env::var("OPENAI_API_KEY").unwrap_or_default())
     };
 
     // Base URL: config.toml first, then env, then default
-    let toml_url = toml_cfg.base_url.filter(|s| !s.is_empty())
-        .or_else(|| active_provider.as_ref().and_then(|p| p.base_url.clone()).filter(|s| !s.is_empty()))
+    let toml_url = toml_cfg
+        .base_url
+        .filter(|s| !s.is_empty())
+        .or_else(|| {
+            active_provider
+                .as_ref()
+                .and_then(|p| p.base_url.clone())
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_default();
     let base_url = if !toml_url.is_empty() {
         toml_url
     } else {
-        env::var("OPENAI_BASE_URL").unwrap_or_default()
+        env::var("OPENAI_BASE_URL")
+            .unwrap_or_default()
             .pipe_if_empty(|| env::var("CODEX_BASE_URL").unwrap_or_default())
             .pipe_if_empty(|| "https://api.openai.com".to_string())
     };
@@ -301,7 +351,11 @@ trait PipeIfEmpty {
 }
 impl PipeIfEmpty for String {
     fn pipe_if_empty(self, f: impl FnOnce() -> String) -> String {
-        if self.is_empty() { f() } else { self }
+        if self.is_empty() {
+            f()
+        } else {
+            self
+        }
     }
 }
 
@@ -322,12 +376,31 @@ fn read_claude_config() -> Result<(String, String, String, String), String> {
         .env
         .get("ANTHROPIC_AUTH_TOKEN")
         .filter(|s| !s.is_empty())
-        .or_else(|| settings.env.get("ANTHROPIC_API_KEY").filter(|s| !s.is_empty()))
+        .or_else(|| {
+            settings
+                .env
+                .get("ANTHROPIC_API_KEY")
+                .filter(|s| !s.is_empty())
+        })
         .cloned()
-        .or_else(|| env::var("ANTHROPIC_AUTH_TOKEN").ok().filter(|s| !s.is_empty()))
+        .or_else(|| {
+            env::var("ANTHROPIC_AUTH_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
         .or_else(|| env::var("ANTHROPIC_API_KEY").ok().filter(|s| !s.is_empty()))
-        .or_else(|| shell_env.get("ANTHROPIC_AUTH_TOKEN").filter(|s| !s.is_empty()).cloned())
-        .or_else(|| shell_env.get("ANTHROPIC_API_KEY").filter(|s| !s.is_empty()).cloned())
+        .or_else(|| {
+            shell_env
+                .get("ANTHROPIC_AUTH_TOKEN")
+                .filter(|s| !s.is_empty())
+                .cloned()
+        })
+        .or_else(|| {
+            shell_env
+                .get("ANTHROPIC_API_KEY")
+                .filter(|s| !s.is_empty())
+                .cloned()
+        })
         .unwrap_or_default();
 
     // Base URL: settings.json env → process env → shell rc files → default
@@ -336,8 +409,17 @@ fn read_claude_config() -> Result<(String, String, String, String), String> {
         .get("ANTHROPIC_BASE_URL")
         .filter(|s| !s.is_empty())
         .cloned()
-        .or_else(|| env::var("ANTHROPIC_BASE_URL").ok().filter(|s| !s.is_empty()))
-        .or_else(|| shell_env.get("ANTHROPIC_BASE_URL").filter(|s| !s.is_empty()).cloned())
+        .or_else(|| {
+            env::var("ANTHROPIC_BASE_URL")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
+        .or_else(|| {
+            shell_env
+                .get("ANTHROPIC_BASE_URL")
+                .filter(|s| !s.is_empty())
+                .cloned()
+        })
         .unwrap_or_else(|| "https://api.anthropic.com".to_string());
 
     let default_model = settings.model.unwrap_or_default();

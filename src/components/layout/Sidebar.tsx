@@ -12,7 +12,7 @@ import { UpdateIndicator } from "./UpdateIndicator";
 import { ProjectActionsMenu } from "../project/ProjectActionsMenu";
 import { DeleteProjectDialog } from "../project/DeleteProjectDialog";
 import { NodeSelector } from "./NodeSelector";
-import { ClaudeMark, CodexMark, GrokMark } from "./ProviderMarks";
+import { ClaudeMark, CodexMark, GrokMark, OmpMark } from "./ProviderMarks";
 import type { ProjectEntry } from "../../types";
 import { collapseDirectBuckets, DIRECT_GROUP_ID } from "../../utils/directChat";
 import {
@@ -53,7 +53,7 @@ import {
 declare const __IS_TAURI__: boolean;
 declare const __APP_VERSION__: string;
 
-type SessionSource = "claude" | "codex" | "grok";
+type SessionSource = "claude" | "codex" | "grok" | "omp";
 
 const SOURCE_OPTIONS = [
   {
@@ -72,6 +72,12 @@ const SOURCE_OPTIONS = [
     id: "grok",
     label: "Grok",
     icon: GrokMark,
+    iconClass: "text-foreground",
+  },
+  {
+    id: "omp",
+    label: "Oh My Pi",
+    icon: OmpMark,
     iconClass: "text-foreground",
   },
 ] as const;
@@ -236,7 +242,7 @@ export function Sidebar() {
             <Search className="w-4 h-4" />
             全局搜索
           </button>
-          {source !== "grok" && (
+          {source !== "grok" && source !== "omp" && (
             <button
               onClick={() => navigate("/stats")}
               className={`w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors ${

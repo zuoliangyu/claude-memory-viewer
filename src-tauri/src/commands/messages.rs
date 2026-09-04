@@ -2,8 +2,11 @@ use std::path::Path;
 use std::time::Instant;
 
 use serde_json::json;
-use session_core::models::message::{PaginatedMessages, RangeMessages};
-use session_core::provider::{claude, codex, grok};
+use session_core::models::message::{
+    question_index, PaginatedMessages, QuestionIndexEntry, RangeMessages,
+};
+use session_core::paths::validate_session_file;
+use session_core::provider::{claude, codex, grok, omp};
 
 use super::perf;
 
@@ -15,10 +18,8 @@ pub async fn get_messages(
     page_size: usize,
     from_end: Option<bool>,
 ) -> Result<PaginatedMessages, String> {
-    let path = Path::new(&file_path);
-    if !path.exists() {
-        return Err(format!("Session file not found: {}", file_path));
-    }
+    let path = validate_session_file(&source, &file_path)?;
+    let file_path = path.to_string_lossy().into_owned();
 
     let file_name = path
         .file_name()
@@ -34,6 +35,7 @@ pub async fn get_messages(
             "claude" => claude::parse_session_messages(path, page, page_size, from_end),
             "codex" => codex::parse_session_messages(path, page, page_size, from_end),
             "grok" => grok::parse_session_messages(path, page, page_size, from_end),
+            "omp" => omp::parse_session_messages(path, page, page_size, from_end),
             _ => Err(format!("Unknown source: {}", source_for_parse)),
         }
     })
@@ -85,10 +87,8 @@ pub async fn get_messages_range(
     start: usize,
     end: usize,
 ) -> Result<RangeMessages, String> {
-    let path = Path::new(&file_path);
-    if !path.exists() {
-        return Err(format!("Session file not found: {}", file_path));
-    }
+    let path = validate_session_file(&source, &file_path)?;
+    let file_path = path.to_string_lossy().into_owned();
 
     let file_name = path
         .file_name()
@@ -103,6 +103,7 @@ pub async fn get_messages_range(
             "claude" => claude::parse_messages_range(path, start, end),
             "codex" => codex::parse_messages_range(path, start, end),
             "grok" => grok::parse_messages_range(path, start, end),
+            "omp" => omp::parse_messages_range(path, start, end),
             _ => Err(format!("Unknown source: {}", source_for_parse)),
         }
     })
@@ -141,4 +142,27 @@ pub async fn get_messages_range(
     }
 
     result
+}
+
+/// Return lightweight user-question metadata for the whole session. The
+/// transcript itself remains windowed through `get_messages_range`.
+#[tauri::command]
+pub async fn get_question_index(
+    source: String,
+    file_path: String,
+) -> Result<Vec<QuestionIndexEntry>, String> {
+    let path = validate_session_file(&source, &file_path)?;
+    let source_for_parse = source.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let messages = match source_for_parse.as_str() {
+            "claude" => claude::parse_all_messages(&path),
+            "codex" => codex::parse_all_messages(&path),
+            "grok" => grok::parse_all_messages(&path),
+            "omp" => omp::parse_all_messages(&path),
+            _ => Err(format!("Unknown source: {source_for_parse}")),
+        }?;
+        Ok(question_index(&messages))
+    })
+    .await
+    .map_err(|error| format!("提问目录解析任务失败: {error}"))?
 }

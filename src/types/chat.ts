@@ -6,12 +6,12 @@ export interface ModelInfo {
   created: number | null;
 }
 
-export type ChatSource = "claude" | "codex";
+export type ChatSource = "claude" | "codex" | "omp";
 
 export interface CliInstallation {
   path: string;
   version: string | null;
-  cliType: string; // "claude" | "codex"
+  cliType: string; // "claude" | "codex" | "omp"
 }
 
 export interface StartChatParams {

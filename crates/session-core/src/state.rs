@@ -207,11 +207,7 @@ fn put_cache_entry(path: &Path, entry: CachedMessages) -> Result<(), String> {
 }
 
 pub fn get_cached_full_messages(path: &Path) -> Result<Option<Vec<DisplayMessage>>, String> {
-    Ok(get_cache_entry(path)?.and_then(|entry| {
-        entry
-            .is_complete
-            .then_some(entry.messages)
-    }))
+    Ok(get_cache_entry(path)?.and_then(|entry| entry.is_complete.then_some(entry.messages)))
 }
 
 /// Try to satisfy a range request `[start, end)` directly from the cache.

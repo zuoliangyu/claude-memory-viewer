@@ -6,6 +6,7 @@ import { ToolViewer } from "../chat/tool-viewers/ToolViewers";
 import { MarkdownContent } from "./MarkdownContent";
 import { useExpandAllControl } from "../common/ExpandAllContext";
 import { useAppStore } from "../../stores/appStore";
+import { OmpMark } from "../layout/ProviderMarks";
 
 interface Props {
   message: DisplayMessage;
@@ -29,9 +30,9 @@ export const AssistantMessage = memo(function AssistantMessage({
   layout = "default",
 }: Props) {
   const timeZone = useAppStore((state) => state.timeZone);
-  const assistantName = source === "codex" ? "Codex" : "Claude";
-  const iconColor = source === "codex" ? "text-green-500" : "text-orange-500";
-  const iconBg = source === "codex" ? "bg-green-500/10" : "bg-orange-500/10";
+  const assistantName = source === "codex" ? "Codex" : source === "omp" ? "Oh My Pi" : "Claude";
+  const iconColor = source === "codex" ? "text-green-500" : source === "omp" ? "text-fuchsia-500" : "text-orange-500";
+  const iconBg = source === "codex" ? "bg-green-500/10" : source === "omp" ? "bg-fuchsia-500/10" : "bg-orange-500/10";
   const [copied, setCopied] = useState(false);
   const { expanded: messageExpanded, setExpanded: setMessageExpanded } = useExpandAllControl(true, { followGlobal: true });
   const textContent = useMemo(
@@ -121,7 +122,7 @@ export const AssistantMessage = memo(function AssistantMessage({
     <div className={`group/assistant ${isThreadLayout ? "w-full" : "flex gap-3"}`}>
       {!isThreadLayout && (
         <div className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${iconBg}`}>
-          <Bot className={`h-3.5 w-3.5 ${iconColor}`} />
+          {source === "omp" ? <OmpMark className="h-4 w-4" /> : <Bot className={`h-3.5 w-3.5 ${iconColor}`} />}
         </div>
       )}
       <div className="min-w-0 flex-1">

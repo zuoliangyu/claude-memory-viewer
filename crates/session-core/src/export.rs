@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use crate::models::message::{DisplayContentBlock, DisplayMessage};
 use crate::paths::validate_session_file;
-use crate::provider::{claude, codex, grok};
+use crate::provider::{claude, codex, grok, omp};
 
 /// 导出格式。前端以小写字符串传入（json / markdown / html）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
@@ -45,6 +45,7 @@ pub fn render_session(
         "claude" => claude::parse_all_messages(&path),
         "codex" => codex::parse_all_messages(&path),
         "grok" => grok::parse_all_messages(&path),
+        "omp" => omp::parse_all_messages(&path),
         _ => return Err(format!("Unknown source: {}", source)),
     }?;
 
@@ -66,11 +67,7 @@ struct JsonExport<'a> {
     messages: &'a [DisplayMessage],
 }
 
-fn render_json(
-    source: &str,
-    path: &Path,
-    messages: &[DisplayMessage],
-) -> Result<String, String> {
+fn render_json(source: &str, path: &Path, messages: &[DisplayMessage]) -> Result<String, String> {
     let export = JsonExport {
         source,
         file_path: path.to_string_lossy().to_string(),
@@ -153,11 +150,15 @@ fn render_block_markdown(block: &DisplayContentBlock, out: &mut String) {
             out.push_str(&format!("**🔧 Tool: `{}`**\n\n", name));
             fenced("json", input, out);
         }
-        DisplayContentBlock::FunctionCall { name, arguments, .. } => {
+        DisplayContentBlock::FunctionCall {
+            name, arguments, ..
+        } => {
             out.push_str(&format!("**🔧 Function: `{}`**\n\n", name));
             fenced("json", arguments, out);
         }
-        DisplayContentBlock::ToolResult { content, is_error, .. } => {
+        DisplayContentBlock::ToolResult {
+            content, is_error, ..
+        } => {
             out.push_str(if *is_error {
                 "**❌ Tool Result (error)**\n\n"
             } else {
@@ -293,18 +294,26 @@ fn render_block_html(block: &DisplayContentBlock, out: &mut String) {
             ));
             pre_block(input, out);
         }
-        DisplayContentBlock::FunctionCall { name, arguments, .. } => {
+        DisplayContentBlock::FunctionCall {
+            name, arguments, ..
+        } => {
             out.push_str(&format!(
                 "<div class=\"tool-label\">🔧 Function: {}</div>",
                 escape_html(name)
             ));
             pre_block(arguments, out);
         }
-        DisplayContentBlock::ToolResult { content, is_error, .. } => {
+        DisplayContentBlock::ToolResult {
+            content, is_error, ..
+        } => {
             out.push_str(&format!(
                 "<div class=\"tool-label{}\">{}</div>",
                 if *is_error { " error" } else { "" },
-                if *is_error { "❌ Tool Result (error)" } else { "✅ Tool Result" }
+                if *is_error {
+                    "❌ Tool Result (error)"
+                } else {
+                    "✅ Tool Result"
+                }
             ));
             pre_block(content, out);
         }

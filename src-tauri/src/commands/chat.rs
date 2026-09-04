@@ -94,11 +94,19 @@ pub async fn start_chat(
 ) -> Result<String, String> {
     let source = cli::normalize_source(&source)?.to_string();
     let session_id = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
-    let credentials =
-        cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
+    let credentials = cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
 
     if source == "codex" {
-        return run_codex_chat(app, session_id, project_path, prompt, model, credentials, None).await;
+        return run_codex_chat(
+            app,
+            session_id,
+            project_path,
+            prompt,
+            model,
+            credentials,
+            None,
+        )
+        .await;
     }
 
     let resolved_cli = if cli_path.is_empty() {
@@ -138,8 +146,7 @@ pub async fn continue_chat(
     base_url: String,
 ) -> Result<String, String> {
     let source = cli::normalize_source(&source)?.to_string();
-    let credentials =
-        cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
+    let credentials = cli_config::resolve_credentials(&source, Some(&api_key), Some(&base_url))?;
 
     if source == "codex" {
         return run_codex_chat(
@@ -159,7 +166,13 @@ pub async fn continue_chat(
     } else {
         cli_path
     };
-
+    let resume_target = if source == "omp" {
+        session_core::provider::omp::find_session_file(&project_path, &session_id)
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| session_id.clone())
+    } else {
+        session_id.clone()
+    };
     let cmd = build_chat_command(BuildChatCommandParams {
         cli_path: &resolved_cli,
         source: &source,
@@ -167,7 +180,7 @@ pub async fn continue_chat(
         prompt: &prompt,
         model: &model,
         skip_permissions,
-        resume_session_id: Some(&session_id),
+        resume_session_id: Some(&resume_target),
         credentials: &credentials,
     })?;
 
@@ -188,7 +201,10 @@ pub async fn cancel_chat(app: AppHandle, session_id: String) -> Result<(), Strin
         map.get(&session_id).cloned()
     };
     if let Some(entry) = codex_target {
-        let CodexSessionEntry { thread_id, credentials } = entry;
+        let CodexSessionEntry {
+            thread_id,
+            credentials,
+        } = entry;
         let turn_id = state.codex_turns.lock().get(&thread_id).cloned();
         if let Some(turn_id) = turn_id {
             let server = CodexAppServer::global();
@@ -233,7 +249,11 @@ async fn run_codex_chat(
 ) -> Result<String, String> {
     let server = CodexAppServer::global();
     let event_id = pending_session_id.clone();
-    let model_opt = if model.is_empty() { None } else { Some(model.as_str()) };
+    let model_opt = if model.is_empty() {
+        None
+    } else {
+        Some(model.as_str())
+    };
 
     // Open the thread (start or resume) and capture metadata.
     let (thread_id, history_turns) = if let Some(thread_id) = resume_thread_id {
@@ -349,7 +369,11 @@ async fn run_codex_chat(
         let thread_for_err = thread_id.clone();
         let abort_for_err = abort.clone();
         tokio::spawn(async move {
-            let m = if model_owned.is_empty() { None } else { Some(model_owned.as_str()) };
+            let m = if model_owned.is_empty() {
+                None
+            } else {
+                Some(model_owned.as_str())
+            };
             if let Err(e) = server
                 .start_turn(&creds, &tid, &prompt, m, Some(cwd.as_str()))
                 .await
@@ -474,9 +498,7 @@ struct BuildChatCommandParams<'a> {
     credentials: &'a cli_config::ResolvedCliCredentials,
 }
 
-fn build_chat_command(
-    params: BuildChatCommandParams<'_>,
-) -> Result<Command, String> {
+fn build_chat_command(params: BuildChatCommandParams<'_>) -> Result<Command, String> {
     let BuildChatCommandParams {
         cli_path,
         source,
@@ -504,6 +526,20 @@ fn build_chat_command(
         }
         // Codex requires a git repo; skip the check so it works in any directory
         cmd.arg("--skip-git-repo-check");
+    } else if source == "omp" {
+        // OMP print mode emits a JSONL event stream and persists the session.
+        if let Some(sid) = resume_session_id {
+            cmd.arg("--resume").arg(sid);
+        }
+        cmd.arg("-p").arg(prompt);
+        cmd.arg("--mode").arg("json");
+        cmd.arg("--no-pty");
+        if !model.is_empty() {
+            cmd.arg("--model").arg(model);
+        }
+        if skip_permissions {
+            cmd.arg("--auto-approve");
+        }
     } else {
         // Claude CLI arguments
         if let Some(sid) = resume_session_id {
@@ -524,7 +560,10 @@ fn build_chat_command(
         }
     }
 
-    eprintln!("[chat] source={}, model={}, project={}", source, model, project_path);
+    eprintln!(
+        "[chat] source={}, model={}, project={}",
+        source, model, project_path
+    );
 
     // Clean environment: use a whitelist approach (like opcode) to avoid
     // inheriting Claude Code session vars that cause conflicts.
@@ -648,7 +687,7 @@ fn apply_provider_env(
             cmd.env("CODEX_BASE_URL", &credentials.base_url);
             cmd.env("OPENAI_BASE_URL", &credentials.base_url);
         }
-    } else {
+    } else if source == "claude" {
         if !credentials.api_key.is_empty() {
             cmd.env("ANTHROPIC_API_KEY", &credentials.api_key);
             cmd.env("ANTHROPIC_AUTH_TOKEN", &credentials.api_key);
@@ -658,23 +697,22 @@ fn apply_provider_env(
         }
     }
 }
-
 fn spawn_and_stream(
     app: AppHandle,
     mut cmd: Command,
     session_id: String,
     source: String,
 ) -> Result<(), String> {
-    let child = cmd.spawn().map_err(|e| format!("Failed to spawn CLI process: {}", e))?;
+    let child = cmd
+        .spawn()
+        .map_err(|e| format!("Failed to spawn CLI process: {}", e))?;
     let pid = child.id().unwrap_or(0);
 
-    // Register the process
     let state = app.state::<ChatProcessState>();
     state.processes.lock().insert(session_id.clone(), pid);
 
     let app_handle = app.clone();
     let sid = session_id.clone();
-
     tokio::spawn(async move {
         stream_process_output(app_handle, child, sid, source).await;
     });

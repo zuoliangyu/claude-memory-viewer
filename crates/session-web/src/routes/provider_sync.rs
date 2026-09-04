@@ -23,11 +23,11 @@ pub struct SyncBody {
     pub keep: usize,
 }
 
-fn default_keep() -> usize { 5 }
+fn default_keep() -> usize {
+    5
+}
 
-pub async fn sync(
-    Json(body): Json<SyncBody>,
-) -> Result<Json<SyncResult>, (StatusCode, String)> {
+pub async fn sync(Json(body): Json<SyncBody>) -> Result<Json<SyncResult>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || provider_sync::run_sync(body.provider, body.keep))
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
@@ -62,9 +62,7 @@ pub struct CloneBody {
     pub keep: usize,
 }
 
-pub async fn clone(
-    Json(body): Json<CloneBody>,
-) -> Result<Json<CloneResult>, (StatusCode, String)> {
+pub async fn clone(Json(body): Json<CloneBody>) -> Result<Json<CloneResult>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
         provider_sync::run_clone(body.file_paths, body.provider, body.keep)
     })
@@ -104,9 +102,7 @@ pub struct PruneQuery {
     pub keep: usize,
 }
 
-pub async fn prune_backups(
-    Query(q): Query<PruneQuery>,
-) -> Result<Json<u32>, (StatusCode, String)> {
+pub async fn prune_backups(Query(q): Query<PruneQuery>) -> Result<Json<u32>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || provider_sync::run_prune_backups(q.keep))
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

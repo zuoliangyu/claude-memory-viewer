@@ -32,6 +32,7 @@ pub fn run() {
             commands::sessions::get_cross_project_tags,
             commands::messages::get_messages,
             commands::messages::get_messages_range,
+            commands::messages::get_question_index,
             commands::perf::report_perf_events,
             commands::trajectory::get_trajectory,
             commands::export::export_session,
