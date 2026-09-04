@@ -28,7 +28,7 @@ import { api } from "../../services/api";
 import { subscribeToChatWebSocketMessages } from "../../services/webApi";
 import { SessionMetaEditor } from "../session/SessionMetaEditor";
 import { ScrollArea } from "../ScrollArea";
-import type { DisplayMessage, SessionIndexEntry } from "../../types";
+import type { DisplayMessage, QuestionIndexEntry, SessionIndexEntry } from "../../types";
 import type { ChatMessage } from "../../types/chat";
 import { ExpandAllProvider } from "../common/ExpandAllContext";
 import { useReplyNotification } from "../../hooks/useReplyNotification";
@@ -47,7 +47,7 @@ import {
 
 declare const __IS_TAURI__: boolean;
 const USE_TAURI_TRANSPORT = __IS_TAURI__ && !isRemoteNodeActive();
-type MessageSource = "claude" | "codex" | "grok";
+type MessageSource = "claude" | "codex" | "grok" | "omp";
 type SplitDirection = "horizontal" | "vertical";
 
 const SPLIT_PANE_MESSAGES_PAGE_SIZE = 50;
@@ -410,6 +410,8 @@ export function MessagesPage() {
       refreshInBackground: state.refreshInBackground,
     })),
   );
+  const supportsCli = source === "claude" || source === "codex" || source === "omp";
+  const supportsResume = supportsCli;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -446,6 +448,7 @@ export function MessagesPage() {
     setTocCollapsed(next);
     localStorage.setItem("messageTocCollapsed", String(next));
   }, []);
+  const [questionIndex, setQuestionIndex] = useState<QuestionIndexEntry[]>([]);
   const mainPaneId = useMemo(() => getMessagesPaneId(filePath), [filePath]);
   const activePaneId = useChatStore((state) => state.activePaneId);
 
@@ -485,7 +488,7 @@ export function MessagesPage() {
     "";
 
   usePaneChatStream(mainPaneId, resolvedSessionId);
-  const cliAvailable = source !== "grok" && availableClis.some((c) => c.cliType === source);
+  const cliAvailable = supportsCli && availableClis.some((cli) => cli.cliType === source);
   const [editingSession, setEditingSession] = useState(false);
 
   // Detect CLI and set chat context on mount
@@ -496,7 +499,7 @@ export function MessagesPage() {
   // Sync source from appStore into chatStore, then refresh model list
   useEffect(() => {
     setActivePane(mainPaneId);
-    if (source !== "grok") {
+    if (source === "claude" || source === "codex" || source === "omp") {
       setPaneSource(mainPaneId, source);
       fetchChatModelList(mainPaneId);
     }
@@ -562,6 +565,27 @@ export function MessagesPage() {
       cancelled = true;
     };
   }, [filePath]);
+
+  useEffect(() => {
+    if (!filePath) {
+      setQuestionIndex([]);
+      return;
+    }
+
+    let cancelled = false;
+    setQuestionIndex([]);
+    void api.getQuestionIndex(source, filePath)
+      .then((entries) => {
+        if (!cancelled) setQuestionIndex(entries);
+      })
+      .catch((error) => {
+        console.error("Failed to load question index:", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [filePath, source]);
 
   useEffect(() => {
     if (!matchedOnly || !scrollToMessageId || messagesLoading) return;
@@ -830,22 +854,31 @@ export function MessagesPage() {
   }, [loadedEnd, loadedStart, messages, messagesTotal]);
 
   // Keep navigation targets aligned with the messages currently rendered in the DOM.
+  // Current-window anchors drive active-state detection and the sticky context card.
   const userDots = useMemo(() => {
     let userIndex = 0;
     return displayedMessages
-      .map((msg, i) => {
+      .map((msg, index) => {
         if (msg.role !== "user") return null;
-        const id = msg.uuid || `user-${i}`;
-        const preview = extractUserQuestionPreview(msg);
         return {
-          id,
+          id: msg.uuid || `user-${loadedStart + index}`,
           index: userIndex++,
-          preview,
+          preview: extractUserQuestionPreview(msg),
           timestamp: msg.timestamp ? formatTime(msg.timestamp, timeZone) : null,
         };
       })
       .filter(Boolean) as Array<{ id: string; index: number; preview: string; timestamp: string | null }>;
-  }, [displayedMessages, timeZone]);
+  }, [displayedMessages, loadedStart, timeZone]);
+
+  const questionTocItems = useMemo(
+    () => questionIndex.map((question, index) => ({
+      id: question.messageId,
+      index,
+      preview: question.preview || "（用户消息）",
+      timestamp: question.timestamp ? formatTime(question.timestamp, timeZone) : null,
+    })),
+    [questionIndex, timeZone],
+  );
 
   const userMessageIds = useMemo(() => userDots.map((d) => d.id), [userDots]);
   const activeUserMsgId = useActiveUserMessage(containerRef, userMessageIds);
@@ -877,30 +910,30 @@ export function MessagesPage() {
     }, 1200);
   }, []);
 
-  const handleThreadSelect = useCallback(
-    (userMsgId: string, _replyMsgId: string | null) => {
-      void _replyMsgId;
-      setViewMode("messages");
-      // Two RAFs: first to commit the viewMode switch, second to guarantee the
-      // MessageThread has rendered before we query for the anchor element.
+  const handleQuestionSelect = useCallback(async (messageId: string) => {
+    const question = questionIndex.find((entry) => entry.messageId === messageId);
+    if (!question) return;
+
+    setViewMode("messages");
+
+    await jumpToMessageIndex(question.messageIndex);
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const el = containerRef.current?.querySelector(
-            `[data-user-msg-id="${userMsgId}"]`
-          );
-          if (!el) return;
-          el.scrollIntoView({ behavior: "smooth", block: "start" });
-          el.classList.add("ring-2", "ring-primary/50", "rounded-lg");
-          setTimeout(() => {
-            el.classList.remove("ring-2", "ring-primary/50", "rounded-lg");
-          }, 1600);
-        });
+        const element = containerRef.current?.querySelector(
+          `[data-message-index="${question.messageIndex}"]`,
+        );
+        if (!element) return;
+        element.scrollIntoView({ behavior: "smooth", block: "center" });
+        element.classList.add("ring-2", "ring-primary/40", "rounded-lg");
+        setTimeout(() => {
+          element.classList.remove("ring-2", "ring-primary/40", "rounded-lg");
+        }, 1200);
       });
-    },
-    []
-  );
+    });
+  }, [jumpToMessageIndex, questionIndex]);
 
   const assistantName = assistantNameFromSource(source);
+
 
   const latestReply = useMemo(() => {
     if (chatMessages.length > 0) {
@@ -947,7 +980,9 @@ export function MessagesPage() {
       ? `claude --resume ${resolvedSessionId}`
       : source === "grok"
         ? `grok -r ${resolvedSessionId}`
-        : `codex resume ${resolvedSessionId}`;
+        : source === "omp"
+          ? `omp --resume ${resolvedSessionId}`
+          : `codex resume ${resolvedSessionId}`;
   };
 
   const handleCopyCommand = async (e: React.MouseEvent) => {
@@ -1063,6 +1098,7 @@ export function MessagesPage() {
       projectPath={chatProjectPath}
       viewportRef={containerRef}
       priorityMessageId={scrollToMessageId}
+      messageOffset={loadedStart}
     />
   );
   const measuredMessageThread = PERF_DIAGNOSTICS_ENABLED ? (
@@ -1118,7 +1154,7 @@ export function MessagesPage() {
           </div>
         </div>
         <div className="flex items-center gap-1.5 shrink-0">
-          {source !== "grok" && filePath && <SessionCostBadge filePath={filePath} />}
+          {supportsCli && filePath && <SessionCostBadge filePath={filePath} />}
           <button
             onClick={toggleTimestamp}
             className={`p-1.5 rounded transition-colors ${
@@ -1237,31 +1273,29 @@ export function MessagesPage() {
           >
             <ChevronsUpDown className="w-3.5 h-3.5" />
           </button>
-          <button
-            onClick={handleResume}
-            className="ml-1 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
-            title={USE_TAURI_TRANSPORT ? "在终端中恢复此会话" : "复制恢复命令"}
-          >
-            {USE_TAURI_TRANSPORT ? (
-              <><Play className="w-3 h-3" />Resume</>
-            ) : (
-              <>
-                {copied ? "已复制" : <><Copy className="w-3 h-3" />复制命令</>}
-              </>
-            )}
-          </button>
-          {USE_TAURI_TRANSPORT && (
-            <button
-              onClick={handleCopyCommand}
-              className="px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-md hover:bg-accent hover:text-foreground flex items-center gap-1"
-              title="复制恢复命令"
-            >
-              {copied ? (
-                <>已复制</>
-              ) : (
-                <><Copy className="w-3 h-3" />复制命令</>
+          {supportsResume && (
+            <>
+              <button
+                onClick={handleResume}
+                className="ml-1 px-3 py-1.5 text-xs bg-primary text-primary-foreground rounded-md hover:bg-primary/90 flex items-center gap-1"
+                title={USE_TAURI_TRANSPORT ? "在终端中恢复此会话" : "复制恢复命令"}
+              >
+                {USE_TAURI_TRANSPORT ? (
+                  <><Play className="w-3 h-3" />Resume</>
+                ) : (
+                  <>{copied ? "已复制" : <><Copy className="w-3 h-3" />复制命令</>}</>
+                )}
+              </button>
+              {USE_TAURI_TRANSPORT && (
+                <button
+                  onClick={handleCopyCommand}
+                  className="px-3 py-1.5 text-xs border border-border text-muted-foreground rounded-md hover:bg-accent hover:text-foreground flex items-center gap-1"
+                  title="复制恢复命令"
+                >
+                  {copied ? <>已复制</> : <><Copy className="w-3 h-3" />复制命令</>}
+                </button>
               )}
-            </button>
+            </>
           )}
         </div>
       </div>
@@ -1350,12 +1384,12 @@ export function MessagesPage() {
 
       <ExpandAllProvider value={{ expanded: allExpanded, version: expandVersion }}>
         <div className="flex-1 min-h-0 flex min-w-0">
-          {viewMode === "messages" && userDots.length > 0 && (
+          {viewMode === "messages" && questionTocItems.length > 0 && !matchedOnly && (
             <div className="relative z-10 shrink-0 py-3 pl-3 flex items-stretch">
               <MessageTOCSidebar
-                items={userDots}
+                items={questionTocItems}
                 activeId={activeUserMsgId}
-                onSelect={handleDotClick}
+                onSelect={handleQuestionSelect}
                 collapsed={tocCollapsed}
                 onToggleCollapsed={handleToggleToc}
               />
@@ -1460,9 +1494,9 @@ export function MessagesPage() {
                 )}
                 {viewMode === "thread" ? (
                   <ThreadSummaryView
-                    messages={displayedMessages}
+                    questions={questionIndex}
                     source={source}
-                    onSelect={handleThreadSelect}
+                    onSelect={handleQuestionSelect}
                     filePath={filePath}
                     projectPath={chatProjectPath}
                   />
@@ -1483,6 +1517,7 @@ export function MessagesPage() {
                 {viewMode === "messages" && chatMessages.length > 0 && (
                   <ChatMessagesBlock
                     messages={chatMessages}
+                    source={source}
                     onSubmitAnswers={handleSubmitAnswers}
                   />
                 )}
@@ -1562,11 +1597,11 @@ export function MessagesPage() {
       )}
 
       {/* Timeline navigation dots */}
-      {userDots.length > 1 && viewMode === "messages" && (
+      {questionTocItems.length > 1 && viewMode === "messages" && !matchedOnly && (
         <TimelineDots
-          dots={userDots}
+          dots={questionTocItems}
           activeId={activeUserMsgId}
-          onDotClick={handleDotClick}
+          onDotClick={handleQuestionSelect}
           offsetFromEdge={showJumpControls}
         />
       )}
@@ -1763,7 +1798,7 @@ function SplitSessionPane({
   }, [loadMessages]);
 
   useEffect(() => {
-    if (source !== "grok") {
+    if (source === "claude" || source === "codex" || source === "omp") {
       setPaneSource(paneId, source);
     }
   }, [paneId, setPaneSource, source]);
@@ -1928,6 +1963,7 @@ function SplitSessionPane({
         {chatMessages.length > 0 && (
           <ChatMessagesBlock
             messages={chatMessages}
+            source={source}
             onSubmitAnswers={handleSubmitAnswers}
           />
         )}
@@ -1969,12 +2005,13 @@ function SplitSessionPane({
 }
 
 /* ── Helper: Chat messages with tool linking ── */
-
 const ChatMessagesBlock = memo(function ChatMessagesBlock({
   messages,
+  source,
   onSubmitAnswers,
 }: {
   messages: ChatMessage[];
+  source: MessageSource;
   onSubmitAnswers: (answers: string) => void;
 }) {
   const { toolResultMap, linkedToolUseIds } = useMemo(() => {
@@ -2003,6 +2040,7 @@ const ChatMessagesBlock = memo(function ChatMessagesBlock({
         <StreamingMessage
           key={msg.id}
           message={msg}
+          source={source}
           toolResultMap={toolResultMap}
           linkedToolUseIds={linkedToolUseIds}
           onSubmitAnswers={onSubmitAnswers}
@@ -2013,11 +2051,18 @@ const ChatMessagesBlock = memo(function ChatMessagesBlock({
     );
 }, (prevProps, nextProps) => (
   prevProps.messages === nextProps.messages &&
+  prevProps.source === nextProps.source &&
   prevProps.onSubmitAnswers === nextProps.onSubmitAnswers
 ));
 
 function assistantNameFromSource(source: MessageSource) {
-  return source === "codex" ? "Codex" : source === "grok" ? "Grok" : "Claude";
+  return source === "codex"
+    ? "Codex"
+    : source === "grok"
+      ? "Grok"
+      : source === "omp"
+        ? "Oh My Pi"
+        : "Claude";
 }
 
 function extractUserQuestionPreview(message: DisplayMessage) {

@@ -8,7 +8,7 @@ import type {
 } from "../types/chat";
 import { api } from "../services/api";
 
-type ChatSource = "claude" | "codex";
+type ChatSource = "claude" | "codex" | "omp";
 
 export const DEFAULT_CHAT_PANE_ID = "default";
 
@@ -142,8 +142,8 @@ interface ChatState {
   setSkipPermissions: (v: boolean) => void;
   setDefaultModel: (m: string) => void;
   setCliPath: (p: string) => void;
-  addCustomModel: (modelId: string, source?: "claude" | "codex", paneId?: string) => void;
-  removeCustomModel: (modelId: string, source?: "claude" | "codex", paneId?: string) => void;
+  addCustomModel: (modelId: string, source?: ChatSource, paneId?: string) => void;
+  removeCustomModel: (modelId: string, source?: ChatSource, paneId?: string) => void;
   addStreamLine: (line: string) => void;
   setStreaming: (v: boolean) => void;
   setSessionId: (id: string) => void;
@@ -750,6 +750,121 @@ function parseCodexStreamLine(line: string): CodexParseResult {
   // hook/*, turn/diff, turn/plan, account/*, fs/*, model/rerouted, etc.).
   return null;
 }
+type OmpParseResult =
+  | { action: "session_id"; id: string }
+  | { action: "add"; message: ChatMessage }
+  | { action: "delta"; delta: string }
+  | { action: "done" }
+  | { action: "error"; message: string }
+  | null;
+
+type OmpRecord = Record<string, unknown>;
+
+function ompRecord(value: unknown): OmpRecord | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as OmpRecord)
+    : null;
+}
+
+function ompString(record: OmpRecord, key: string): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function parseOmpMessage(data: OmpRecord): ChatMessage | null {
+  const message = ompRecord(data.message);
+  if (!message) return null;
+  const role = ompString(message, "role") === "user" ? "user" : ompString(message, "role") === "toolResult" ? "tool" : "assistant";
+  const rawContent = message.content;
+  const content: unknown[] = Array.isArray(rawContent) ? rawContent : [{ type: "text", text: rawContent }];
+  const blocks: ChatContentBlock[] = [];
+  for (const rawBlock of content) {
+    if (typeof rawBlock === "string") {
+      if (rawBlock) blocks.push({ type: "text", text: rawBlock });
+      continue;
+    }
+    const block = ompRecord(rawBlock);
+    if (!block) continue;
+    const blockType = ompString(block, "type");
+    if (blockType === "text" && ompString(block, "text")) {
+      blocks.push({ type: "text", text: ompString(block, "text") || "" });
+    } else if (blockType === "thinking" && ompString(block, "thinking")) {
+      blocks.push({ type: "thinking", text: ompString(block, "thinking") || "" });
+    } else if (blockType === "toolCall" && ompString(block, "name")) {
+      const args = block.arguments;
+      blocks.push({
+        type: "tool_use",
+        id: ompString(block, "id") || generateUUID(),
+        name: ompString(block, "name") || "tool",
+        input: typeof args === "string" ? args : JSON.stringify(args ?? {}, null, 2),
+      });
+    } else if (blockType === "toolResult") {
+      const result = block.content;
+      blocks.push({
+        type: "tool_result",
+        toolUseId: ompString(block, "toolCallId") || "",
+        content: typeof result === "string" ? result : JSON.stringify(result ?? "", null, 2),
+        isError: block.isError === true,
+      });
+    }
+  }
+  if (blocks.length === 0) return null;
+  return {
+    id: ompString(data, "id") || ompString(message, "id") || generateUUID(),
+    role,
+    content: blocks,
+    model: ompString(message, "model"),
+    timestamp: ompString(message, "timestamp") || new Date().toISOString(),
+  };
+}
+
+function parseOmpStreamLine(line: string): OmpParseResult {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  const data = ompRecord(parsed);
+  if (!data) return null;
+  if (ompString(data, "type") === "session" && ompString(data, "id")) {
+    return { action: "session_id", id: ompString(data, "id")! };
+  }
+  const type = ompString(data, "type");
+  const message = ompRecord(data.message);
+  if ((type === "message_start" || type === "message_end") && message) {
+    const converted = parseOmpMessage(data);
+    if (converted) return { action: "add", message: converted };
+    if (type === "message_start" && ompString(message, "role") === "assistant") {
+      return {
+        action: "add",
+        message: {
+          id: ompString(data, "id") || generateUUID(),
+          role: "assistant",
+          content: [],
+          model: ompString(message, "model"),
+          timestamp: new Date().toISOString(),
+        },
+      };
+    }
+    return null;
+  }
+  if (type === "message_update") {
+    const event = ompRecord(data.assistantMessageEvent);
+    const eventType = event ? ompString(event, "type") : undefined;
+    const delta = event ? ompString(event, "delta") || ompString(event, "text") : undefined;
+    if ((eventType === "text_delta" || eventType === "thinking_delta") && delta) {
+      return { action: "delta", delta };
+    }
+    return null;
+  }
+  if (type === "agent_end") return { action: "done" };
+  if (type === "notice" && ompString(data, "level") === "error") {
+    return { action: "error", message: ompString(data, "message") || "OMP error" };
+  }
+  return null;
+}
+
 
 export const useChatStore = create<ChatState>((set, get) => {
   const initialDefaultPane = createChatPaneState();
@@ -955,7 +1070,7 @@ export const useChatStore = create<ChatState>((set, get) => {
       const customKey = `chat_customModels_${source}`;
       const customIds: string[] = JSON.parse(localStorage.getItem(customKey) || "[]");
       const existingIds = new Set(models.map((m) => m.id));
-      const provider = source === "codex" ? "openai" : "anthropic";
+      const provider = source === "codex" ? "openai" : source === "omp" ? "omp" : "anthropic";
       const customModels: ModelInfo[] = customIds
         .filter((id) => !existingIds.has(id))
         .map((id) => ({ id, name: id, provider, group: "自定义", created: null }));
@@ -1272,6 +1387,66 @@ export const useChatStore = create<ChatState>((set, get) => {
 
   addStreamLineToPane: (paneId, line) => {
     const pane = get().getPaneState(paneId);
+
+    if (pane.source === "omp") {
+      const parsed = parseOmpStreamLine(line);
+      get().setPaneState(paneId, (currentPane) => ({
+        ...currentPane,
+        rawOutput: [...currentPane.rawOutput, line],
+      }));
+      if (!parsed) return;
+      if (parsed.action === "session_id") {
+        get().setPaneSessionId(paneId, parsed.id);
+      } else if (parsed.action === "delta") {
+        get().setPaneState(paneId, (currentPane) => {
+          const messages = [...currentPane.messages];
+          const last = messages[messages.length - 1];
+          if (last?.role === "assistant") {
+            const textBlock = last.content.find((block) => block.type === "text");
+            if (textBlock?.type === "text") {
+              const index = last.content.indexOf(textBlock);
+              const content = [...last.content];
+              content[index] = { ...textBlock, text: textBlock.text + parsed.delta };
+              messages[messages.length - 1] = { ...last, content };
+            } else {
+              messages[messages.length - 1] = {
+                ...last,
+                content: [...last.content, { type: "text", text: parsed.delta }],
+              };
+            }
+          } else {
+            messages.push({
+              id: generateUUID(),
+              role: "assistant",
+              content: [{ type: "text", text: parsed.delta }],
+              timestamp: new Date().toISOString(),
+            });
+          }
+          return { ...currentPane, messages };
+        });
+      } else if (parsed.action === "add") {
+        get().setPaneState(paneId, (currentPane) => {
+          const messages = [...currentPane.messages];
+          const index = messages.findIndex((message) => message.id === parsed.message.id);
+          if (index >= 0) {
+            messages[index] = parsed.message;
+          } else if (
+            (parsed.message.role === "assistant" || parsed.message.role === "user") &&
+            messages[messages.length - 1]?.role === parsed.message.role
+          ) {
+            messages[messages.length - 1] = parsed.message;
+          } else {
+            messages.push(parsed.message);
+          }
+          return { ...currentPane, messages };
+        });
+      } else if (parsed.action === "error") {
+        get().setPaneState(paneId, { isStreaming: false, error: parsed.message });
+      } else if (parsed.action === "done") {
+        get().setPaneStreaming(paneId, false);
+      }
+      return;
+    }
 
     if (pane.source === "codex") {
       const parsed = parseCodexStreamLine(line);

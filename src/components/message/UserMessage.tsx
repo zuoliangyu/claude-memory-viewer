@@ -69,6 +69,7 @@ export const UserMessage = memo(function UserMessage({
     const raw = (textContent.join("\n\n") || copyText).replace(/\s+/g, " ").trim();
     return raw.length > 120 ? `${raw.slice(0, 120)}…` : raw || "（用户消息）";
   }, [textContent, copyText]);
+  const isShortPreview = previewText.length <= 12;
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -113,7 +114,7 @@ export const UserMessage = memo(function UserMessage({
 
   return (
     <div className={`flex ${isThreadLayout ? "justify-start" : "justify-end"}`}>
-      <div className={isThreadLayout ? "w-full" : "max-w-[85%]"}>
+      <div className={isThreadLayout ? "w-full" : isShortPreview ? "w-fit" : "max-w-[85%]"}>
         {threadHint && (
           <div className={`mb-1 text-[11px] text-muted-foreground ${isThreadLayout ? "text-left" : "text-right"}`}>
             {threadHint}
@@ -122,9 +123,9 @@ export const UserMessage = memo(function UserMessage({
         {!expanded ? (
           <button
             onClick={handleExpandFromPreview}
-            className={`group flex w-full items-center gap-2 rounded-2xl border border-dashed px-3 py-2 text-xs text-muted-foreground transition-colors text-left hover:bg-accent ${
-              hue ? `${hue.border} ${hue.previewBg}` : "border-primary/30 bg-primary/5"
-            }`}
+            className={`group items-center gap-2 rounded-2xl border border-dashed px-3 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-accent ${
+              isShortPreview ? "inline-flex" : "flex w-full max-w-full"
+            } ${hue ? `${hue.border} ${hue.previewBg}` : "border-primary/30 bg-primary/5"}`}
             title={foldTitle}
           >
             {hue && questionIndex !== undefined && (
@@ -135,7 +136,9 @@ export const UserMessage = memo(function UserMessage({
               </span>
             )}
             <ChevronDown className="w-3.5 h-3.5 shrink-0 -rotate-90 transition-transform group-hover:rotate-0" />
-            <span className="flex-1 truncate text-left">{previewText}</span>
+            <span className={isShortPreview ? "whitespace-nowrap text-left" : "min-w-0 flex-1 truncate text-left"}>
+              {previewText}
+            </span>
             {hasReplyControl && (
               <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${hue ? `${hue.bubbleBg} ${hue.text}` : "bg-primary/15 text-primary"}`}>
                 {replyCount} 条回复

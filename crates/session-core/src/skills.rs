@@ -219,7 +219,9 @@ fn has_claude_skills_segment(p: &Path) -> bool {
             _ => None,
         })
         .collect();
-    names.windows(2).any(|w| w[0] == ".claude" && w[1] == "skills")
+    names
+        .windows(2)
+        .any(|w| w[0] == ".claude" && w[1] == "skills")
 }
 
 /// Read the full text of a `SKILL.md` for the detail view.
@@ -544,7 +546,9 @@ pub fn import_skills_from_bytes(
     // 1. Discover skill prefixes (parent dirs of each SKILL.md; "" = archive root).
     let mut prefixes: Vec<String> = Vec::new();
     for i in 0..zip.len() {
-        let file = zip.by_index(i).map_err(|e| format!("读取压缩包出错: {}", e))?;
+        let file = zip
+            .by_index(i)
+            .map_err(|e| format!("读取压缩包出错: {}", e))?;
         let Some(path) = file.enclosed_name() else {
             continue;
         };
@@ -609,7 +613,9 @@ pub fn import_skills_from_bytes(
 
     // 2. Extract every file under an active prefix.
     for i in 0..zip.len() {
-        let mut file = zip.by_index(i).map_err(|e| format!("读取压缩包出错: {}", e))?;
+        let mut file = zip
+            .by_index(i)
+            .map_err(|e| format!("读取压缩包出错: {}", e))?;
         if file.is_dir() {
             continue;
         }
@@ -620,9 +626,9 @@ pub fn import_skills_from_bytes(
             None => continue,
         };
 
-        let matched = active.iter().find(|(prefix, _, _)| {
-            prefix.is_empty() || norm.starts_with(&format!("{}/", prefix))
-        });
+        let matched = active
+            .iter()
+            .find(|(prefix, _, _)| prefix.is_empty() || norm.starts_with(&format!("{}/", prefix)));
         let Some((prefix, slug, target_dir)) = matched else {
             continue;
         };
@@ -638,7 +644,9 @@ pub fn import_skills_from_bytes(
 
         let dest = target_dir.join(&rel);
         if !dest.starts_with(target_dir) {
-            result.errors.push(format!("{}: 跳过非法路径 {}", slug, rel));
+            result
+                .errors
+                .push(format!("{}: 跳过非法路径 {}", slug, rel));
             continue;
         }
         if let Some(parent) = dest.parent() {

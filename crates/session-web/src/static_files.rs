@@ -27,6 +27,10 @@ pub async fn static_handler(uri: Uri) -> Response {
     // SPA fallback: serve index.html
     match Asset::get("index.html") {
         Some(content) => Html(String::from_utf8_lossy(&content.data).to_string()).into_response(),
-        None => (StatusCode::NOT_FOUND, "Frontend not found. Build with `npm run build:web` first.").into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            "Frontend not found. Build with `npm run build:web` first.",
+        )
+            .into_response(),
     }
 }

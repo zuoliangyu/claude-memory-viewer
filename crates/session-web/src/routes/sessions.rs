@@ -4,7 +4,7 @@ use axum::response::Json;
 use serde::Deserialize;
 use session_core::metadata;
 use session_core::models::session::SessionIndexEntry;
-use session_core::provider::{claude, codex, grok};
+use session_core::provider::{claude, codex, grok, omp};
 
 use crate::{resolve_claude_project_dir, resolve_session_file_path, SessionSource};
 
@@ -15,11 +15,7 @@ pub struct SessionsQuery {
     pub project_id: String,
 }
 
-fn merge_session_metadata(
-    source: &str,
-    project_id: &str,
-    sessions: &mut [SessionIndexEntry],
-) {
+fn merge_session_metadata(source: &str, project_id: &str, sessions: &mut [SessionIndexEntry]) {
     let meta = metadata::load_metadata(source, project_id);
     for session in sessions {
         if let Some(sm) = meta.sessions.get(&session.session_id) {
@@ -42,12 +38,10 @@ pub async fn get_sessions(
 ) -> Result<Json<Vec<SessionIndexEntry>>, (StatusCode, String)> {
     let source = params.source;
     let project_id = params.project_id;
-    let source_kind = SessionSource::parse(&source)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let source_kind = SessionSource::parse(&source).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     if source_kind == SessionSource::Claude {
-        resolve_claude_project_dir(&project_id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        resolve_claude_project_dir(&project_id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
 
     let result = tokio::task::spawn_blocking(move || {
@@ -55,6 +49,7 @@ pub async fn get_sessions(
             "claude" => claude::get_sessions(&project_id)?,
             "codex" => codex::get_sessions(&project_id)?,
             "grok" => grok::get_sessions(&project_id)?,
+            "omp" => omp::get_sessions(&project_id)?,
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
@@ -74,12 +69,10 @@ pub async fn get_invalid_sessions(
 ) -> Result<Json<Vec<SessionIndexEntry>>, (StatusCode, String)> {
     let source = params.source;
     let project_id = params.project_id;
-    let source_kind = SessionSource::parse(&source)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let source_kind = SessionSource::parse(&source).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     if source_kind == SessionSource::Claude {
-        resolve_claude_project_dir(&project_id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        resolve_claude_project_dir(&project_id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
 
     let result = tokio::task::spawn_blocking(move || {
@@ -87,6 +80,7 @@ pub async fn get_invalid_sessions(
             "claude" => claude::get_invalid_sessions(&project_id)?,
             "codex" => codex::get_invalid_sessions(&project_id)?,
             "grok" => grok::get_invalid_sessions(&project_id)?,
+            "omp" => omp::get_invalid_sessions(&project_id)?,
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
@@ -119,8 +113,7 @@ pub async fn delete_session(
     let source = params
         .source
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "source is required".to_string()))?;
-    let source_kind = SessionSource::parse(&source)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let source_kind = SessionSource::parse(&source).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let project_id = params.project_id;
     let session_id = params.session_id;
 
@@ -140,6 +133,7 @@ pub async fn delete_session(
                 SessionSource::Claude => claude::invalidate_cache(),
                 SessionSource::Codex => codex::invalidate_sessions_cache(),
                 SessionSource::Grok => grok::invalidate_sessions_cache(),
+                SessionSource::Omp => omp::invalidate_sessions_cache(),
             }
             return Ok(Json(()));
         }
@@ -149,13 +143,14 @@ pub async fn delete_session(
     match source_kind {
         SessionSource::Claude => {
             if let Some(ref pid) = project_id {
-                let project_dir = resolve_claude_project_dir(pid)
-                    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-                let parent = resolved_path
-                    .parent()
-                    .ok_or_else(|| {
-                        (StatusCode::BAD_REQUEST, "Invalid session file path".to_string())
-                    })?;
+                let project_dir =
+                    resolve_claude_project_dir(pid).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+                let parent = resolved_path.parent().ok_or_else(|| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        "Invalid session file path".to_string(),
+                    )
+                })?;
                 if parent != project_dir.as_path() {
                     return Err((
                         StatusCode::BAD_REQUEST,
@@ -169,7 +164,10 @@ pub async fn delete_session(
                     .file_stem()
                     .and_then(|stem| stem.to_str())
                     .ok_or_else(|| {
-                        (StatusCode::BAD_REQUEST, "Invalid session file name".to_string())
+                        (
+                            StatusCode::BAD_REQUEST,
+                            "Invalid session file name".to_string(),
+                        )
                     })?;
                 if file_stem != sid {
                     return Err((
@@ -180,13 +178,12 @@ pub async fn delete_session(
             }
         }
         SessionSource::Codex => {
-            let session_meta = codex::extract_session_meta(&resolved_path)
-                .ok_or_else(|| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        "Failed to read Codex session metadata".to_string(),
-                    )
-                })?;
+            let session_meta = codex::extract_session_meta(&resolved_path).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Failed to read Codex session metadata".to_string(),
+                )
+            })?;
 
             if let Some(ref pid) = project_id {
                 if session_meta.cwd != *pid {
@@ -232,6 +229,30 @@ pub async fn delete_session(
                 }
             }
         }
+        SessionSource::Omp => {
+            let session_meta = omp::extract_session_meta(&resolved_path).ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "Failed to read OMP session metadata".to_string(),
+                )
+            })?;
+            if let Some(ref pid) = project_id {
+                if session_meta.cwd != *pid {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "Session file does not belong to the requested OMP project".to_string(),
+                    ));
+                }
+            }
+            if let Some(ref sid) = session_id {
+                if session_meta.id != *sid {
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        "Session id does not match the requested OMP session file".to_string(),
+                    ));
+                }
+            }
+        }
     }
 
     tokio::task::spawn_blocking(move || {
@@ -240,10 +261,12 @@ pub async fn delete_session(
                 .parent()
                 .ok_or_else(|| "Invalid Grok session path".to_string())?;
             std::fs::remove_dir_all(session_dir)
-                .map_err(|e| format!("Failed to delete Grok session: {}", e))?;
+                .map_err(|error| format!("Failed to delete Grok session: {error}"))?;
+        } else if source == "omp" {
+            omp::permanently_delete_session(&resolved_path)?;
         } else {
             std::fs::remove_file(&resolved_path)
-                .map_err(|e| format!("Failed to delete session: {}", e))?;
+                .map_err(|error| format!("Failed to delete session: {error}"))?;
         }
 
         // Clean up metadata if identifiers provided
@@ -275,12 +298,11 @@ pub struct UpdateMetaBody {
 pub async fn update_session_meta(
     Json(body): Json<UpdateMetaBody>,
 ) -> Result<Json<()>, (StatusCode, String)> {
-    let source_kind = SessionSource::parse(&body.source)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    let source_kind =
+        SessionSource::parse(&body.source).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     if source_kind == SessionSource::Claude {
-        resolve_claude_project_dir(&body.project_id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        resolve_claude_project_dir(&body.project_id).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     }
 
     let validated_file_path = if source_kind == SessionSource::Claude {
@@ -292,7 +314,10 @@ pub async fn update_session_meta(
                 let project_dir = resolve_claude_project_dir(&body.project_id)
                     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
                 let parent = resolved.parent().ok_or_else(|| {
-                    (StatusCode::BAD_REQUEST, "Invalid session file path".to_string())
+                    (
+                        StatusCode::BAD_REQUEST,
+                        "Invalid session file path".to_string(),
+                    )
                 })?;
                 if parent != project_dir.as_path() {
                     return Err((
@@ -300,9 +325,15 @@ pub async fn update_session_meta(
                         "Session file does not belong to the requested project".to_string(),
                     ));
                 }
-                let file_stem = resolved.file_stem().and_then(|stem| stem.to_str()).ok_or_else(
-                    || (StatusCode::BAD_REQUEST, "Invalid session file name".to_string()),
-                )?;
+                let file_stem = resolved
+                    .file_stem()
+                    .and_then(|stem| stem.to_str())
+                    .ok_or_else(|| {
+                        (
+                            StatusCode::BAD_REQUEST,
+                            "Invalid session file name".to_string(),
+                        )
+                    })?;
                 if file_stem != body.session_id {
                     return Err((
                         StatusCode::BAD_REQUEST,
@@ -408,10 +439,9 @@ pub async fn get_cross_project_tags(
     Query(params): Query<CrossTagsQuery>,
 ) -> Result<Json<std::collections::HashMap<String, Vec<String>>>, (StatusCode, String)> {
     let source = params.source;
-    let result =
-        tokio::task::spawn_blocking(move || metadata::get_all_cross_project_tags(&source))
-            .await
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let result = tokio::task::spawn_blocking(move || metadata::get_all_cross_project_tags(&source))
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
 
     Ok(Json(result))
 }

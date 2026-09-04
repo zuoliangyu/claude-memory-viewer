@@ -7,11 +7,7 @@ import { useAppStore } from "../../stores/appStore";
 import { Star, GitFork, Play, Loader2, ChevronDown, ChevronRight } from "lucide-react";
 import { api } from "../../services/api";
 import { useExpandAllControl } from "../common/ExpandAllContext";
-import {
-  buildMessageTree,
-  getUserMessageId,
-  type ThreadDisplayNode,
-} from "./threading";
+import { getUserMessageId, type ThreadDisplayNode } from "./threading";
 
 declare const __IS_TAURI__: boolean;
 
@@ -28,6 +24,8 @@ interface MessageThreadProps {
   projectPath?: string;
   viewportRef?: RefObject<HTMLDivElement | null>;
   priorityMessageId?: string | null;
+  /** Absolute index of the first message in this rendered window. */
+  messageOffset?: number;
 }
 
 const DEFER_RENDER_THRESHOLD = 24;
@@ -145,16 +143,20 @@ function DeferredThreadMessage({
   viewportRef,
   renderContent,
   isThreaded,
+  messageOffset,
 }: {
   node: ThreadDisplayNode;
   eager: boolean;
   viewportRef?: RefObject<HTMLDivElement | null>;
   renderContent: () => ReactNode;
   isThreaded: boolean;
+  messageOffset: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const userMessageId =
-    node.message.role === "user" ? getUserMessageId(node.message, node.originalIndex) : undefined;
+    node.message.role === "user"
+      ? getUserMessageId(node.message, messageOffset + node.originalIndex)
+      : undefined;
   const estimatedHeight = useMemo(() => estimatePlaceholderHeight(node), [node]);
   const [activated, setActivated] = useState(eager);
 
@@ -194,6 +196,7 @@ function DeferredThreadMessage({
     <div
       ref={containerRef}
       data-user-msg-id={userMessageId}
+      data-message-index={messageOffset + node.originalIndex}
     >
       {activated ? renderContent() : <DeferredMessagePlaceholder node={node} estimatedHeight={estimatedHeight} isThreaded={isThreaded} />}
     </div>
@@ -204,7 +207,7 @@ function getThreadLineText(node: ThreadDisplayNode, source: string): string {
   const title = node.threadTitle.trim();
 
   if (node.message.role === "assistant") {
-    const assistantName = source === "claude" ? "Claude" : "Codex";
+    const assistantName = source === "claude" ? "Claude" : source === "omp" ? "Oh My Pi" : "Codex";
     return title ? `${assistantName} · ${title}` : assistantName;
   }
 
@@ -334,6 +337,7 @@ export const MessageThread = memo(function MessageThread({
   projectPath,
   viewportRef,
   priorityMessageId,
+  messageOffset = 0,
 }: MessageThreadProps) {
   const addBookmark = useAppStore((state) => state.addBookmark);
   const removeBookmark = useAppStore((state) => state.removeBookmark);
@@ -448,9 +452,26 @@ export const MessageThread = memo(function MessageThread({
       console.error("Failed to resume session:", err);
     }
   };
-
   const showActionButtons = __IS_TAURI__ && source === "claude";
-  const { roots, isThreaded } = useMemo(() => buildMessageTree(messages), [messages]);
+
+  const roots = useMemo<ThreadDisplayNode[]>(
+    () =>
+      messages.map((message, originalIndex) => ({
+        id: message.uuid || `${message.role}-${originalIndex}`,
+        originalIndex,
+        message,
+        children: [],
+        sectionPath: [],
+        sectionLabel: "",
+        threadTitle: "",
+        threadAnchor: null,
+        mentionAnchors: [],
+        parentSource: null,
+        forkUserMessageId: null,
+      })),
+    [messages],
+  );
+  const isThreaded = false;
   // Map each user-message id (uuid or fallback) to its 0-based ordinal so
   // UserMessage can paint a question-specific hue. Index is computed from the
   // raw `messages` order, which matches what the TOC sidebar shows, keeping
@@ -597,6 +618,7 @@ export const MessageThread = memo(function MessageThread({
       eager={!shouldDefer || eagerNodeIds?.has(node.id) === true}
       viewportRef={viewportRef}
       isThreaded={isThreaded}
+      messageOffset={messageOffset}
       renderContent={() => renderMessageContent(node, threadFold)}
     />
   );
@@ -654,6 +676,6 @@ export const MessageThread = memo(function MessageThread({
   prevProps.sessionTitle === nextProps.sessionTitle &&
   prevProps.projectName === nextProps.projectName &&
   prevProps.projectPath === nextProps.projectPath &&
-  prevProps.viewportRef === nextProps.viewportRef &&
-  prevProps.priorityMessageId === nextProps.priorityMessageId
+  prevProps.priorityMessageId === nextProps.priorityMessageId &&
+  prevProps.messageOffset === nextProps.messageOffset
 ));

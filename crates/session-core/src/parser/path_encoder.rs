@@ -19,13 +19,7 @@ pub fn get_stats_cache_path() -> Option<PathBuf> {
 fn encode_path_segment(segment: &str) -> String {
     segment
         .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c
-            } else {
-                '-'
-            }
-        })
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
         .collect()
 }
 
@@ -321,9 +315,7 @@ fn resolve_segments_recursive(current: &Path, parts: &[&str], start: usize) -> O
                 }
                 // Only recurse into directories
                 if child.is_dir() {
-                    if let Some(result) =
-                        resolve_segments_recursive(&child, parts, start + count)
-                    {
+                    if let Some(result) = resolve_segments_recursive(&child, parts, start + count) {
                         return Some(result);
                     }
                 }
@@ -391,9 +383,20 @@ pub fn short_name_from_encoded(encoded: &str) -> String {
     // - "Users" / "home"
     // - common system dirs
     const SKIP: &[&str] = &[
-        "Users", "home", "Desktop", "Documents", "Downloads",
-        "OneDrive", "Dropbox", "iCloud", "projects", "workspace",
-        "workspaces", "dev", "code", "src",
+        "Users",
+        "home",
+        "Desktop",
+        "Documents",
+        "Downloads",
+        "OneDrive",
+        "Dropbox",
+        "iCloud",
+        "projects",
+        "workspace",
+        "workspaces",
+        "dev",
+        "code",
+        "src",
     ];
 
     let mut start = 0;
@@ -415,11 +418,7 @@ pub fn short_name_from_encoded(encoded: &str) -> String {
     }
 
     // Skip other known boring leading tokens
-    while start < tokens.len()
-        && SKIP
-            .iter()
-            .any(|s| tokens[start].eq_ignore_ascii_case(s))
-    {
+    while start < tokens.len() && SKIP.iter().any(|s| tokens[start].eq_ignore_ascii_case(s)) {
         start += 1;
     }
 
@@ -475,11 +474,17 @@ mod tests {
         let encoded = "C--Users-zuolan-Desktop-liaoyuan-web-wrokspace-liaoyuan-materials";
         // Basic decode: all `-` → `\`
         let basic = decode_project_path(encoded);
-        assert_eq!(basic, "C:\\\\Users\\zuolan\\Desktop\\liaoyuan\\web\\wrokspace\\liaoyuan\\materials");
+        assert_eq!(
+            basic,
+            "C:\\\\Users\\zuolan\\Desktop\\liaoyuan\\web\\wrokspace\\liaoyuan\\materials"
+        );
         // The validated decoder should NOT show just "materials" as the short name.
         // (Full filesystem match or partial — either way last component ≠ "materials").
         let decoded = decode_project_path_validated(encoded);
         let short = short_name_from_path(&decoded.display_path);
-        assert_ne!(short, "materials", "short name should not be the naive last token");
+        assert_ne!(
+            short, "materials",
+            "short name should not be the naive last token"
+        );
     }
 }

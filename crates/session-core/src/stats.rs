@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::io::{BufRead, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use std::fs;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -245,21 +245,24 @@ pub fn get_project_costs(source: &str) -> Result<Vec<ProjectCostEntry>, String> 
     with_claude_cache(|cache| {
         let mut by_project: HashMap<String, ProjectCostEntry> = HashMap::new();
         for fs in cache.files.values() {
-            let entry = by_project
-                .entry(fs.project_id.clone())
-                .or_insert_with(|| ProjectCostEntry {
-                    source: "claude".to_string(),
-                    project_id: fs.project_id.clone(),
-                    display_name: project_display_name("claude", &fs.project_id),
-                    request_count: 0,
-                    total_tokens: 0,
-                    cache_read_tokens: 0,
-                    cost_usd: 0.0,
-                    has_unpriced_usage: false,
-                });
+            let entry =
+                by_project
+                    .entry(fs.project_id.clone())
+                    .or_insert_with(|| ProjectCostEntry {
+                        source: "claude".to_string(),
+                        project_id: fs.project_id.clone(),
+                        display_name: project_display_name("claude", &fs.project_id),
+                        request_count: 0,
+                        total_tokens: 0,
+                        cache_read_tokens: 0,
+                        cost_usd: 0.0,
+                        has_unpriced_usage: false,
+                    });
             entry.request_count += fs.message_count;
-            entry.total_tokens +=
-                fs.input_tokens + fs.output_tokens + fs.cache_read_tokens + fs.cache_creation_tokens;
+            entry.total_tokens += fs.input_tokens
+                + fs.output_tokens
+                + fs.cache_read_tokens
+                + fs.cache_creation_tokens;
             entry.cache_read_tokens += fs.cache_read_tokens;
             for request in &fs.requests {
                 entry.cost_usd += compact_cost(request);
@@ -356,7 +359,11 @@ fn materialise_session_summary(
     let total: u64 = matched.iter().map(|r| r.total_tokens).sum();
     let cost: f64 = matched.iter().map(|r| r.cost_usd).sum();
     let count = matched.len() as u64;
-    let avg = if count == 0 { None } else { Some(cost / count as f64) };
+    let avg = if count == 0 {
+        None
+    } else {
+        Some(cost / count as f64)
+    };
 
     SessionCostSummary {
         source: source.to_string(),
@@ -642,9 +649,7 @@ struct CacheState {
 fn cache_state() -> &'static Mutex<CacheState> {
     static CELL: OnceLock<Mutex<CacheState>> = OnceLock::new();
     CELL.get_or_init(|| {
-        let pristine = cache_path()
-            .map(|p| !p.exists())
-            .unwrap_or(true);
+        let pristine = cache_path().map(|p| !p.exists()).unwrap_or(true);
         Mutex::new(CacheState {
             cache: load_cache_from_disk(),
             last_refresh: None,
@@ -990,7 +995,11 @@ fn merge_into_summary(cache: &AsvStatsCache, time_zone: Tz) -> TokenUsageSummary
             let total = bucket.input + bucket.output + bucket.cache_read + bucket.cache_creation;
             let mut ratio_by_model: HashMap<String, f64> = HashMap::new();
             for (model, num) in &bucket.per_model_cache_ratio_num {
-                let den = bucket.per_model_cache_ratio_den.get(model).copied().unwrap_or(0);
+                let den = bucket
+                    .per_model_cache_ratio_den
+                    .get(model)
+                    .copied()
+                    .unwrap_or(0);
                 if den > 0 {
                     ratio_by_model.insert(model.clone(), *num as f64 / den as f64);
                 }

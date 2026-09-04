@@ -523,13 +523,11 @@ fn dispatch_and_prune(
     list: &mut Vec<mpsc::Sender<CodexNotification>>,
     notification: &CodexNotification,
 ) {
-    list.retain(
-        |tx| match tx.try_send(notification.clone()) {
-            Ok(()) => true,
-            Err(mpsc::error::TrySendError::Full(_)) => true,
-            Err(mpsc::error::TrySendError::Closed(_)) => false,
-        },
-    );
+    list.retain(|tx| match tx.try_send(notification.clone()) {
+        Ok(()) => true,
+        Err(mpsc::error::TrySendError::Full(_)) => true,
+        Err(mpsc::error::TrySendError::Closed(_)) => false,
+    });
 }
 
 fn apply_path_and_env(cmd: &mut Command, cli_path: &str, creds: &ResolvedCliCredentials) {
@@ -622,4 +620,3 @@ fn apply_path_and_env(cmd: &mut Command, cli_path: &str, creds: &ResolvedCliCred
         cmd.env("OPENAI_BASE_URL", &creds.base_url);
     }
 }
-

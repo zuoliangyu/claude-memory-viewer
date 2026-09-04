@@ -4,11 +4,7 @@ use session_core::export::{render_session, ExportFormat};
 
 /// 渲染单个会话为指定格式的字符串。文件名由前端决定，这里只返回内容。
 #[tauri::command]
-pub fn export_session(
-    source: String,
-    file_path: String,
-    format: String,
-) -> Result<String, String> {
+pub fn export_session(source: String, file_path: String, format: String) -> Result<String, String> {
     let fmt = ExportFormat::parse(&format)?;
     render_session(&source, &file_path, fmt)
 }
@@ -33,11 +29,13 @@ pub fn write_export_file(path: String, content: String) -> Result<(), String> {
     match p.parent() {
         Some(parent) if parent.as_os_str().is_empty() || parent.is_dir() => {}
         Some(parent) => {
-            return Err(format!("Target directory does not exist: {}", parent.display()))
+            return Err(format!(
+                "Target directory does not exist: {}",
+                parent.display()
+            ))
         }
         None => return Err("Invalid export path".to_string()),
     }
 
-    std::fs::write(p, content.as_bytes())
-        .map_err(|e| format!("Failed to write export file: {}", e))
+    std::fs::write(p, content.as_bytes()).map_err(|e| format!("Failed to write export file: {}", e))
 }

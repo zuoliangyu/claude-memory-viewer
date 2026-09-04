@@ -4,6 +4,7 @@ import type {
   SessionIndexEntry,
   PaginatedMessages,
   RangeMessages,
+  QuestionIndexEntry,
   Trajectory,
   SearchResult,
   TokenUsageSummary,
@@ -92,6 +93,14 @@ export async function getMessagesRange(
     start,
     end,
   });
+}
+
+/** Fetch all user-question navigation entries without loading every message. */
+export async function getQuestionIndex(
+  source: string,
+  filePath: string,
+): Promise<QuestionIndexEntry[]> {
+  return invoke<QuestionIndexEntry[]>("get_question_index", { source, filePath });
 }
 
 export async function getTrajectory(

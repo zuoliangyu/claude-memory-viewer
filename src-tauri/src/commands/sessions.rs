@@ -2,7 +2,7 @@ use session_core::metadata;
 use session_core::metadata::validate_session_id;
 use session_core::models::session::SessionIndexEntry;
 use session_core::paths::validate_session_file;
-use session_core::provider::{claude, codex, grok};
+use session_core::provider::{claude, codex, grok, omp};
 use session_core::recyclebin;
 
 fn merge_session_metadata(source: &str, project_id: &str, sessions: &mut [SessionIndexEntry]) {
@@ -33,6 +33,7 @@ pub async fn get_sessions(
             "claude" => claude::get_sessions(&project_id)?,
             "codex" => codex::get_sessions(&project_id)?,
             "grok" => grok::get_sessions(&project_id)?,
+            "omp" => omp::get_sessions(&project_id)?,
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
@@ -53,6 +54,7 @@ pub async fn refresh_sessions_cache(
             "claude" => claude::refresh_sessions_cache(&project_id)?,
             "codex" => codex::refresh_sessions_cache(&project_id)?,
             "grok" => grok::refresh_sessions_cache(&project_id)?,
+            "omp" => omp::refresh_sessions_cache(&project_id)?,
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
@@ -73,6 +75,7 @@ pub async fn get_invalid_sessions(
             "claude" => claude::get_invalid_sessions(&project_id)?,
             "codex" => codex::get_invalid_sessions(&project_id)?,
             "grok" => grok::get_invalid_sessions(&project_id)?,
+            "omp" => omp::get_invalid_sessions(&project_id)?,
             _ => return Err(format!("Unknown source: {}", source)),
         };
 
@@ -100,23 +103,39 @@ pub fn delete_session(
     // to the recycle bin.
     match validate_session_file(&source, &file_path) {
         Ok(path) => {
-            // Claude/Codex sessions are one JSONL file. Grok keeps a session in
-            // a directory, so recycle the validated file's parent as one unit.
-            let recycle_path = if source == "grok" {
-                path.parent()
-                    .ok_or_else(|| "Invalid Grok session path".to_string())?
+            if source == "omp" {
+                let metadata = omp::extract_session_meta(&path)
+                    .ok_or_else(|| "Failed to read OMP session metadata".to_string())?;
+                if metadata.cwd != project_id {
+                    return Err(
+                        "Session file does not belong to the requested OMP project".to_string()
+                    );
+                }
+                if metadata.id != session_id {
+                    return Err(
+                        "Session id does not match the requested OMP session file".to_string()
+                    );
+                }
+                recyclebin::move_omp_session_to_recyclebin(&path, &project_id, None, None)?;
             } else {
-                path.as_path()
-            };
-            recyclebin::move_to_recyclebin(
-                recycle_path,
-                "session",
-                "ManualDelete",
-                &source,
-                &project_id,
-                None,
-                None,
-            )?;
+                // Claude/Codex sessions are one JSONL file. Grok keeps a session in
+                // a directory, so recycle the validated file's parent as one unit.
+                let recycle_path = if source == "grok" {
+                    path.parent()
+                        .ok_or_else(|| "Invalid Grok session path".to_string())?
+                } else {
+                    path.as_path()
+                };
+                recyclebin::move_to_recyclebin(
+                    recycle_path,
+                    "session",
+                    "ManualDelete",
+                    &source,
+                    &project_id,
+                    None,
+                    None,
+                )?;
+            }
         }
         // The rollout file is already gone — e.g. the conversation was archived
         // or deleted in Codex desktop while it still lingered in our in-memory
@@ -137,6 +156,8 @@ pub fn delete_session(
         codex::invalidate_sessions_cache();
     } else if source == "grok" {
         grok::invalidate_sessions_cache();
+    } else if source == "omp" {
+        omp::invalidate_sessions_cache();
     }
 
     Ok(())
@@ -159,11 +180,7 @@ pub fn update_session_meta(
         // `~/.bashrc` via the alias write.
         if let Some(ref fp) = file_path {
             let path = validate_session_file(&source, fp)?;
-            session_core::parser::jsonl::append_custom_title(
-                &path,
-                &session_id,
-                alias.as_deref(),
-            )?;
+            session_core::parser::jsonl::append_custom_title(&path, &session_id, alias.as_deref())?;
         }
         // Only persist tags to metadata (alias is now in JSONL for Claude)
         let result = metadata::update_session_meta(&source, &project_id, &session_id, None, tags);
@@ -171,7 +188,13 @@ pub fn update_session_meta(
         result
     } else {
         let result = metadata::update_session_meta(&source, &project_id, &session_id, alias, tags);
-        if source == "codex" { codex::invalidate_sessions_cache(); } else if source == "grok" { grok::invalidate_sessions_cache(); }
+        if source == "codex" {
+            codex::invalidate_sessions_cache();
+        } else if source == "grok" {
+            grok::invalidate_sessions_cache();
+        } else if source == "omp" {
+            omp::invalidate_sessions_cache();
+        }
         result
     }
 }
@@ -190,6 +213,8 @@ pub fn rename_chat_session(
         codex::invalidate_sessions_cache();
     } else if source == "grok" {
         grok::invalidate_sessions_cache();
+    } else if source == "omp" {
+        omp::invalidate_sessions_cache();
     }
     Ok(())
 }

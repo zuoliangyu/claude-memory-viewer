@@ -26,7 +26,9 @@ pub fn scan_session_dir(dir: &Path) -> Vec<PathBuf> {
     }
     let mut stack = vec![dir.to_path_buf()];
     while let Some(current) = stack.pop() {
-        let Ok(read) = fs::read_dir(&current) else { continue };
+        let Ok(read) = fs::read_dir(&current) else {
+            continue;
+        };
         for entry in read.flatten() {
             let path = entry.path();
             if path.is_dir() {
@@ -79,11 +81,11 @@ pub fn read_meta(path: &Path, scan_encrypted: bool) -> Option<RolloutMetaInfo> {
         .and_then(|x| x.as_str())
         .unwrap_or("")
         .to_string();
-    let session_id = payload
-        .get("id")
+    let session_id = payload.get("id").and_then(|x| x.as_str()).map(String::from);
+    let cwd = payload
+        .get("cwd")
         .and_then(|x| x.as_str())
         .map(String::from);
-    let cwd = payload.get("cwd").and_then(|x| x.as_str()).map(String::from);
     let metadata = fs::metadata(path).ok()?;
     let mtime = metadata.modified().ok()?;
     let has_encrypted = if scan_encrypted {
@@ -159,9 +161,8 @@ pub fn rewrite_session_meta_provider(
             path.display()
         ));
     }
-    let mut v: Value =
-        serde_json::from_str(original_line.trim_start_matches('\u{feff}'))
-            .map_err(|e| format!("parse session_meta: {}", e))?;
+    let mut v: Value = serde_json::from_str(original_line.trim_start_matches('\u{feff}'))
+        .map_err(|e| format!("parse session_meta: {}", e))?;
     if let Some(payload) = v.get_mut("payload") {
         if let Some(obj) = payload.as_object_mut() {
             obj.insert(

@@ -4,7 +4,7 @@ import { DEFAULT_CHAT_PANE_ID, useChatStore } from "../../stores/chatStore";
 import { useAppStore } from "../../stores/appStore";
 import { ModelSelector } from "./ModelSelector";
 import { api } from "../../services/api";
-
+import { OmpMark } from "../layout/ProviderMarks";
 export interface ChatInputHandle {
   /** Insert the given text as a markdown blockquote at the current cursor position, focusing the textarea. */
   insertQuote: (text: string) => void;
@@ -40,6 +40,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const model = useChatStore((state) => state.getPaneState(paneId).model);
+  const source = useChatStore((state) => state.getPaneState(paneId).source);
   const setPaneModel = useChatStore((state) => state.setPaneModel);
   const setActivePane = useChatStore((state) => state.setActivePane);
 
@@ -179,7 +180,7 @@ export const ChatInput = forwardRef<ChatInputHandle, Props>(function ChatInput({
             className="flex items-center gap-1.5 px-2 py-1 text-xs rounded-md border border-border bg-muted hover:bg-accent/50 transition-colors disabled:opacity-50"
             title={model || "选择模型 (Ctrl+K)"}
           >
-            <Bot className="w-3 h-3 text-orange-500" />
+            {source === "omp" ? <OmpMark className="w-3.5 h-3.5" /> : <Bot className={`w-3 h-3 ${source === "codex" ? "text-green-500" : "text-orange-500"}`} />}
             <span className="max-w-[12rem] truncate text-foreground">{modelDisplay}</span>
             <ChevronDown className="w-3 h-3 text-muted-foreground" />
           </button>

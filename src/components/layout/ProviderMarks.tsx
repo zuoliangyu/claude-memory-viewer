@@ -47,3 +47,25 @@ export function GrokMark({ className = "" }: ProviderMarkProps) {
     </svg>
   );
 }
+
+export function OmpMark({ className = "" }: ProviderMarkProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <defs>
+        <linearGradient id="omp-mark-gradient" x1="5" x2="19" y1="5" y2="19" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#ED5DFF" />
+          <stop offset="0.5" stopColor="#A95CFF" />
+          <stop offset="1" stopColor="#29C7FF" />
+        </linearGradient>
+      </defs>
+      <rect width="24" height="24" rx="5" fill="#111118" />
+      <path d="M4.25 5.25h15.5v4.5h-5.25v9h-5v-9H4.25v-4.5Z" fill="url(#omp-mark-gradient)" />
+    </svg>
+  );
+}

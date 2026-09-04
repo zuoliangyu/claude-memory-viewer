@@ -99,6 +99,19 @@ export interface DisplayMessage {
   content: DisplayContentBlock[];
 }
 
+/** Session-wide navigation metadata for a user question. */
+export interface QuestionIndexEntry {
+  messageIndex: number;
+  messageId: string;
+  preview: string;
+  timestamp: string | null;
+  parentMessageIndex: number | null;
+  replyPreview: string;
+  replyModel: string | null;
+  replyTimestamp: string | null;
+  hasTool: boolean;
+}
+
 export interface PaginatedMessages {
   messages: DisplayMessage[];
   total: number;
@@ -375,5 +388,7 @@ export interface RecycledItem {
   projectName: string | null;
   originalPath: string;
   storedName: string;
+  companionOriginalPath?: string | null;
+  companionStoredName?: string | null;
   movedAt: string;
 }

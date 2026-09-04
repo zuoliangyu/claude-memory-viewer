@@ -1,6 +1,6 @@
 use axum::extract::Query;
-use axum::response::Json;
 use axum::http::StatusCode;
+use axum::response::Json;
 use serde::Deserialize;
 use session_core::search::SearchResult;
 

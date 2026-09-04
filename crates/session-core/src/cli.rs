@@ -22,7 +22,7 @@ fn hide_console(cmd: &mut Command) -> &mut Command {
 pub struct CliInstallation {
     pub path: String,
     pub version: Option<String>,
-    pub cli_type: String, // "claude" | "codex"
+    pub cli_type: String, // "claude" | "codex" | "omp"
 }
 
 /// Normalize a source name to the supported CLI types.
@@ -32,18 +32,20 @@ pub fn normalize_source(source: &str) -> Result<&'static str, String> {
         Ok("claude")
     } else if trimmed.eq_ignore_ascii_case("codex") {
         Ok("codex")
+    } else if trimmed.eq_ignore_ascii_case("omp") || trimmed.eq_ignore_ascii_case("oh-my-pi") {
+        Ok("omp")
     } else {
         Err(format!("Unsupported source: {}", source))
     }
 }
 
-/// Find a CLI binary path by source name ("claude" or "codex").
+/// Find a CLI binary path by source name ("claude", "codex", or "omp").
 pub fn find_cli(cli_type: &str) -> Result<String, String> {
     match normalize_source(cli_type)? {
-        "codex" => {
-            find_codex()
-                .ok_or_else(|| "Codex CLI not found. Run: npm install -g @openai/codex".to_string())
-        }
+        "codex" => find_codex()
+            .ok_or_else(|| "Codex CLI not found. Run: npm install -g @openai/codex".to_string()),
+        "omp" => find_omp()
+            .ok_or_else(|| "Oh My Pi CLI not found. Install it from https://omp.sh".to_string()),
         "claude" => {
             // Claude: try system lookup first, then known paths
             if let Some(path) = which_binary("claude") {
@@ -58,6 +60,30 @@ pub fn find_cli(cli_type: &str) -> Result<String, String> {
         }
         _ => unreachable!(),
     }
+}
+
+/// Find the Oh My Pi CLI binary.
+fn find_omp() -> Option<String> {
+    if let Some(path) = which_binary("omp") {
+        return Some(path);
+    }
+    let home = dirs::home_dir()?;
+    let candidates = if cfg!(windows) {
+        vec![
+            home.join("AppData/Local/omp/omp.exe"),
+            home.join("AppData/Roaming/npm/omp.cmd"),
+            home.join("AppData/Roaming/npm/omp.exe"),
+        ]
+    } else {
+        vec![
+            home.join(".local/bin/omp"),
+            home.join(".npm-global/bin/omp"),
+        ]
+    };
+    candidates
+        .into_iter()
+        .find(|path| path.exists())
+        .map(|path| path.to_string_lossy().to_string())
 }
 
 /// Find the Codex CLI binary path (npm/nvm only).
@@ -150,6 +176,14 @@ pub fn discover_installations() -> Vec<CliInstallation> {
             cli_type: "codex".to_string(),
         });
     }
+    if let Some(path) = find_omp() {
+        let version = get_cli_version(&path);
+        installations.push(CliInstallation {
+            path,
+            version,
+            cli_type: "omp".to_string(),
+        });
+    }
 
     installations
 }
@@ -196,10 +230,7 @@ fn which_binary(name: &str) -> Option<String> {
         //   2. `zsh -c '. ~/.zprofile 2>/dev/null; . ~/.zshrc 2>/dev/null; which X'`
         //      — also sources .zshrc where Homebrew-nvm users typically init nvm
         //   3. Same for bash (.bash_profile / .bashrc)
-        let shell_cmds: &[(&str, &[&str])] = &[
-            ("zsh", &["-l", "-c"]),
-            ("bash", &["-l", "-c"]),
-        ];
+        let shell_cmds: &[(&str, &[&str])] = &[("zsh", &["-l", "-c"]), ("bash", &["-l", "-c"])];
         for (shell, args) in shell_cmds {
             let cmd = format!("which {name}");
             if let Ok(output) = Command::new(shell).args(*args).arg(&cmd).output() {
@@ -214,7 +245,10 @@ fn which_binary(name: &str) -> Option<String> {
         // Also try sourcing rc files explicitly (covers Homebrew nvm in .zshrc / .bashrc)
         let rc_cmds: &[(&str, &str)] = &[
             ("zsh", ". ~/.zprofile 2>/dev/null; . ~/.zshrc 2>/dev/null"),
-            ("bash", ". ~/.bash_profile 2>/dev/null; . ~/.bashrc 2>/dev/null"),
+            (
+                "bash",
+                ". ~/.bash_profile 2>/dev/null; . ~/.bashrc 2>/dev/null",
+            ),
         ];
         for (shell, source_cmds) in rc_cmds {
             let cmd = format!("{source_cmds}; which {name}");

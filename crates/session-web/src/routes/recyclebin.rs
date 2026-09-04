@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 use session_core::recyclebin::{self, RecycledItem};
 
 pub async fn list_items() -> Json<Vec<RecycledItem>> {
-    Json(tokio::task::spawn_blocking(recyclebin::list_items)
-        .await
-        .unwrap_or_default())
+    Json(
+        tokio::task::spawn_blocking(recyclebin::list_items)
+            .await
+            .unwrap_or_default(),
+    )
 }
 
-pub async fn restore_item(
-    Path(id): Path<String>,
-) -> Result<Json<()>, (StatusCode, String)> {
+pub async fn restore_item(Path(id): Path<String>) -> Result<Json<()>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || recyclebin::restore_item(&id))
         .await
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?

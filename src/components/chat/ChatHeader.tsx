@@ -13,6 +13,7 @@ import {
   Copy,
   Check,
 } from "lucide-react";
+import { OmpMark } from "../layout/ProviderMarks";
 
 export function ChatHeader({
   paneId = DEFAULT_CHAT_PANE_ID,
@@ -40,9 +41,11 @@ export function ChatHeader({
   const resumeHint =
     source === "codex"
       ? `codex resume ${sessionId ?? ""}`
-      : `claude --resume ${sessionId ?? ""}`;
+      : source === "omp"
+        ? `omp --resume ${sessionId ?? ""}`
+        : `claude --resume ${sessionId ?? ""}`;
 
-  const cliLabel = source === "codex" ? "Codex" : "Claude";
+  const cliLabel = source === "codex" ? "Codex" : source === "omp" ? "Oh My Pi" : "Claude";
   const cliInfo = availableClis.find((c) => c.cliType === source);
   const canToggleExpand = messages.length > 0;
 
@@ -67,7 +70,7 @@ export function ChatHeader({
     <div className="flex items-center gap-3 px-4 py-2.5 border-b border-border bg-card">
       {/* Source indicator */}
       <div className="flex items-center gap-1.5">
-        <Bot className="w-4 h-4 text-orange-500" />
+        {source === "omp" ? <OmpMark className="w-4 h-4" /> : <Bot className={`w-4 h-4 ${source === "codex" ? "text-green-500" : "text-orange-500"}`} />}
         <span className="text-sm font-medium">{cliLabel}</span>
       </div>
 

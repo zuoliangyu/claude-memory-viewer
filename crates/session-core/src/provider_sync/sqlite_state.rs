@@ -9,7 +9,9 @@ pub fn db_path(codex_home: &Path) -> PathBuf {
 }
 
 pub fn read_provider_counts(path: &Path) -> Vec<(String, bool, u32)> {
-    let Ok(conn) = open_read(path) else { return Vec::new() };
+    let Ok(conn) = open_read(path) else {
+        return Vec::new();
+    };
     if !table_exists(&conn, "threads") {
         return Vec::new();
     }
@@ -21,7 +23,9 @@ pub fn read_provider_counts(path: &Path) -> Vec<(String, bool, u32)> {
         "SELECT COALESCE(model_provider,''), 0, COUNT(*) \
          FROM threads GROUP BY model_provider"
     };
-    let Ok(mut stmt) = conn.prepare(sql) else { return Vec::new() };
+    let Ok(mut stmt) = conn.prepare(sql) else {
+        return Vec::new();
+    };
     let Ok(rows) = stmt.query_map([], |row| {
         Ok((
             row.get::<_, String>(0)?,
@@ -180,7 +184,10 @@ pub fn clone_thread(
         .map(|i| format!("?{}", i))
         .collect::<Vec<_>>()
         .join(", ");
-    let sql = format!("INSERT INTO threads ({}) VALUES ({})", col_list, placeholders);
+    let sql = format!(
+        "INSERT INTO threads ({}) VALUES ({})",
+        col_list, placeholders
+    );
     conn.execute(&sql, params_from_iter(vals.iter()))
         .map_err(|e| format!("insert cloned thread: {}", e))?;
     Ok(true)
@@ -213,8 +220,12 @@ fn table_exists(conn: &Connection, table: &str) -> bool {
 
 fn column_exists(conn: &Connection, table: &str, col: &str) -> bool {
     let sql = format!("PRAGMA table_info(\"{}\")", table);
-    let Ok(mut stmt) = conn.prepare(&sql) else { return false };
-    let Ok(mut rows) = stmt.query([]) else { return false };
+    let Ok(mut stmt) = conn.prepare(&sql) else {
+        return false;
+    };
+    let Ok(mut rows) = stmt.query([]) else {
+        return false;
+    };
     while let Ok(Some(row)) = rows.next() {
         if let Ok(name) = row.get::<_, String>(1) {
             if name == col {
